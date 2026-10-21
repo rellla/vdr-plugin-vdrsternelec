@@ -73,11 +73,14 @@ One server per line:
                    repository.
            index   A plain HTTP directory listing (e.g. from nginx, Apache
                    or "python3 -m http.server") containing the update files.
+           dir     A local directory or a mounted network share containing
+                   the update files ("manual update"). url is the absolute
+                   path, e.g. /storage/updates or /media/nas/vdrelec.
   name     Name shown in the OSD.
   channel  json:   name of the channel to use (e.g. "LibreELEC-13.0").
            github: only tags containing this text are used
                    (e.g. "LibreELEC-13" or "CoreELEC-21").
-           Empty means all channels/tags.
+           Empty means all channels/tags. Not used for index and dir.
   filter   Optional regular expression (ECMAScript syntax). If given, it is
            used instead of the device string to select the update files.
   !        A leading '!' disables the entry.
@@ -87,10 +90,35 @@ Examples (see also servers.conf.example):
   github|VDR*ELEC|Zabrimus/VDRSternELEC|LibreELEC-13|
   json|My builds|https://builds.example.org/vdrelec/||
   index|NAS|http://192.168.1.10/vdrelec/||
+  dir|USB stick|/var/media/USBSTICK/updates||
 
 Checksums are taken from releases.json, from the "digest" GitHub provides for
-release assets, or from a file <update file>.sha256 next to the update file.
+release assets, from a file <update file>.sha256 next to the update file, or
+from a checksum list named SHA256SUMS (or sha256sums, sha256sums.txt) in the
+same directory, as created by
+
+  sha256sum *.tar *.img.gz > SHA256SUMS
+
 Files without checksum are refused unless "Require checksum" is disabled.
+
+
+Local and network directories (manual update)
+---------------------------------------------
+
+A "dir" server lists the update files of a directory, just like copying a
+file into /storage/.update manually, but with checksum verification and
+selection in the OSD. Only files directly in that directory are listed, and
+only files for this device (or matching the filter). The release date is the
+modification time of the file.
+
+Network shares must be mounted first, e.g. with a systemd mount unit in
+/storage/.config/system.d (see the LibreELEC wiki on mounting network
+shares), and the mount point is given as path:
+
+  dir|NAS|/storage/nas/vdrelec||
+
+Removable media appear under /var/media/<label>. The update directory itself
+can't be used as source.
 
 Note: unauthenticated access to the GitHub API is limited to 60 requests per
 hour and IP address.

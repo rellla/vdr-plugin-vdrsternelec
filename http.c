@@ -74,11 +74,13 @@ static CURL *NewHandle(const std::string &Url, char *ErrorBuffer)
   curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
   curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  // local files (file://) only if explicitly requested, never via redirects
+  bool file = Url.compare(0, 7, "file://") == 0;
 #if LIBCURL_VERSION_NUM >= 0x075500 // 7.85.0
-  curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
+  curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, file ? "file" : "http,https");
   curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
 #else
-  curl_easy_setopt(curl, CURLOPT_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+  curl_easy_setopt(curl, CURLOPT_PROTOCOLS, file ? (long)CURLPROTO_FILE : (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
   curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
 #endif
   return curl;
@@ -153,7 +155,7 @@ bool HttpDownload(const std::string &Url, const std::string &FileName, cHttpProg
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, Progress);
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-  isyslog_plg("downloading %s to %s", Url.c_str(), FileName.c_str());
+  isyslog_plg("%s %s to %s", Url.compare(0, 7, "file://") == 0 ? "copying" : "downloading", Url.c_str(), FileName.c_str());
   CURLcode res = curl_easy_perform(curl);
   bool ok = res == CURLE_OK;
   if (!ok)

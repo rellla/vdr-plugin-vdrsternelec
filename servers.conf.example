@@ -3,6 +3,7 @@
 #   type    json   = LibreELEC style server with releases.json
 #           github = GitHub releases, url is owner/repo
 #           index  = plain HTTP directory listing
+#           dir    = local or mounted network directory, url is the path
 #   channel channel (json) or text contained in the tag (github), empty = all
 #   filter  optional regular expression for file names
 #   A leading '!' disables an entry.
@@ -16,5 +17,9 @@ github|VDR*ELEC|Zabrimus/VDRSternELEC||
 # Own builds with a releases.json
 !json|My builds|https://builds.example.org/vdrelec/||
 
-# Update files in a directory on the NAS
+# Update files in a directory on the NAS (via HTTP)
 !index|NAS|http://192.168.1.10/vdrelec/||
+
+# Update files in a local directory, on a USB stick or a mounted network
+# share (manual update), checksums in <file>.sha256 or SHA256SUMS
+!dir|USB stick|/var/media/USBSTICK/updates||

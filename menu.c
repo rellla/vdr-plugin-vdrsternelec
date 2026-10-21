@@ -454,6 +454,7 @@ cMenuServerEdit::cMenuServerEdit(std::vector<cServerEntry> *Servers, int Index)
   typeNames[stJson] = tr("releases.json");
   typeNames[stGithub] = tr("GitHub");
   typeNames[stIndex] = tr("Directory listing");
+  typeNames[stDir] = tr("Local/network directory");
   Set();
 }
 
@@ -463,8 +464,9 @@ void cMenuServerEdit::Set(void)
   Add(new cMenuEditStraItem(tr("Type"), &type, stTypes, typeNames));
   Add(new cMenuEditBoolItem(tr("Enabled"), &enabled));
   Add(new cMenuEditStrItem(tr("Name"), name, sizeof(name)));
-  Add(new cMenuEditStrItem(type == stGithub ? tr("Repository") : tr("URL"), url, sizeof(url), UrlChars));
-  Add(new cMenuEditStrItem(type == stGithub ? tr("Tag contains") : tr("Channel"), channel, sizeof(channel), UrlChars));
+  Add(new cMenuEditStrItem(type == stGithub ? tr("Repository") : type == stDir ? tr("Path") : tr("URL"), url, sizeof(url), UrlChars));
+  if (type != stIndex && type != stDir)
+     Add(new cMenuEditStrItem(type == stGithub ? tr("Tag contains") : tr("Channel"), channel, sizeof(channel), UrlChars));
   Add(new cMenuEditStrItem(tr("Filter (regex)"), filter, sizeof(filter), UrlChars));
   Display();
 }
@@ -489,6 +491,10 @@ eOSState cMenuServerEdit::ProcessKey(eKeys Key)
      e.filter = Trim(filter);
      if (e.url.empty()) {
         Skins.Message(mtError, tr("URL must not be empty"));
+        return osContinue;
+        }
+     if (e.type == stDir && LocalPath(e.url).empty()) {
+        Skins.Message(mtError, tr("Invalid path (must start with /)"));
         return osContinue;
         }
      if (e.type == stGithub && GithubApiUrl(e.url).empty()) {

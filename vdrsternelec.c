@@ -25,7 +25,7 @@
 #error "VDR-2.4.0 API version or greater is required!"
 #endif
 
-static const char *VERSION        = "0.1.0";
+static const char *VERSION        = "0.2.0";
 static const char *DESCRIPTION    = trNOOP("Update VDR*ELEC from release servers");
 static const char *MAINMENUENTRY  = trNOOP("VDR*ELEC update");
 

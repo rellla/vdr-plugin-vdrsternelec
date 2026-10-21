@@ -62,7 +62,7 @@ bool cPluginConfig::SetupParse(const char *Name, const char *Value)
 
 // --- cServerEntry --------------------------------------------------------------
 
-static const char *ServerTypeNames[stTypes] = { "json", "github", "index" };
+static const char *ServerTypeNames[stTypes] = { "json", "github", "index", "dir" };
 
 const char *ServerTypeName(int Type)
 {
@@ -191,6 +191,7 @@ bool cServerList::Save(void)
   fprintf(f, "#   type    json   = LibreELEC style server with releases.json\n");
   fprintf(f, "#           github = GitHub releases, url is owner/repo\n");
   fprintf(f, "#           index  = plain HTTP directory listing\n");
+  fprintf(f, "#           dir    = local or mounted network directory, url is the path\n");
   fprintf(f, "#   channel channel (json) or tag (github) to use, empty = all\n");
   fprintf(f, "#   filter  optional regular expression for file names\n");
   fprintf(f, "#   A leading '!' disables an entry.\n");

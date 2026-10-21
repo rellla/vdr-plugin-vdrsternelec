@@ -1,6 +1,15 @@
 VDR Plugin 'vdrsternelec' Revision History
 -------------------------------------------
 
+2026-10-21: Version 0.2.0
+
+- New source type "dir": a local or mounted network directory containing
+  update files (.tar, .img.gz) and checksums (<file>.sha256 or SHA256SUMS).
+  This is the "manual update" known from LibreELEC, with checksum
+  verification and selection in the OSD.
+- SHA256SUMS checksum lists are also supported for HTTP directory listings.
+- A checksum list must contain an entry for the update file.
+
 2026-10-21: Version 0.1.0
 
 - Initial revision.

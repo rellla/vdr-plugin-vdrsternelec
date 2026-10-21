@@ -45,16 +45,16 @@ extern cPluginConfig PluginConfig;
 
 // --- Servers -----------------------------------------------------------------
 
-enum eServerType { stJson, stGithub, stIndex, stTypes };
+enum eServerType { stJson, stGithub, stIndex, stDir, stTypes };
 
 const char *ServerTypeName(int Type);
-  ///< "json", "github" or "index" (used in servers.conf)
+  ///< "json", "github", "index" or "dir" (used in servers.conf)
 
 struct cServerEntry {
   int type;               ///< eServerType
   bool enabled;
   std::string name;
-  std::string url;        ///< server URL, or owner/repo for GitHub
+  std::string url;        ///< server URL, owner/repo for GitHub, path for dir
   std::string channel;    ///< channel/tag to use, empty = all
   std::string filter;     ///< optional regular expression for file names
   cServerEntry(void) : type(stJson), enabled(true) {}

@@ -278,12 +278,61 @@ static void TestIndex(void)
      }
 }
 
+static void TestLocalDirectory(void)
+{
+  std::vector<cLocalFile> files;
+  const char *names[] = { "LibreELEC-RPi4.aarch64-13.0-VDR-0724.tar", "LibreELEC-RPi4.aarch64-13.0-VDR-0724.tar.sha256",
+                          "LibreELEC-RPi4.aarch64-13.0-VDR-0801.img.gz", "LibreELEC-RPi5.aarch64-13.0-VDR-0801.tar",
+                          "notes.txt", NULL };
+  for (int i = 0; names[i]; i++) {
+      cLocalFile f;
+      f.name = names[i];
+      f.size = 1000 + i;
+      f.mtime = 1000000 + i;
+      files.push_back(f);
+      }
+  std::vector<cReleaseInfo> r;
+  CHECK(ParseLocalDirectory(files, "/media/NAS Share/vdrelec/", "RPi4.aarch64", "", "NAS", r));
+  CHECK(r.size() == 2);
+  if (r.size() == 2) {
+     CHECK(r[0].local);
+     CHECK_EQ(r[0].url, "file:///media/NAS%20Share/vdrelec/LibreELEC-RPi4.aarch64-13.0-VDR-0724.tar");
+     CHECK_EQ(r[0].sha256Url, "file:///media/NAS%20Share/vdrelec/LibreELEC-RPi4.aarch64-13.0-VDR-0724.tar.sha256");
+     CHECK(r[0].size == 1000);
+     CHECK(r[0].timestamp == 1000000);
+     CHECK_EQ(r[0].channel, "NAS");
+     CHECK(r[1].sha256Url.empty());
+     }
+  // checksum list
+  cLocalFile sums;
+  sums.name = "SHA256SUMS";
+  sums.size = 10;
+  sums.mtime = 0;
+  files.push_back(sums);
+  r.clear();
+  CHECK(ParseLocalDirectory(files, "file:///srv/up", "RPi4.aarch64", "", "x", r));
+  CHECK(r.size() == 2 && r[1].sha256Url == "file:///srv/up/SHA256SUMS");
+  r.clear();
+  CHECK(!ParseLocalDirectory(files, "relative/path", "RPi4.aarch64", "", "x", r));
+  CHECK_EQ(LocalPath("file:///media/NAS%20Share/"), "/media/NAS Share");
+  CHECK_EQ(LocalPath("/storage/updates/"), "/storage/updates");
+  CHECK_EQ(LocalPath("smb://nas/share"), "");
+  // directory listing with checksum list
+  std::vector<cReleaseInfo> h;
+  CHECK(ParseIndexHtml("<a href=\"LibreELEC-RPi4.aarch64-13.0.tar\">a</a><a href=\"SHA256SUMS\">s</a>", "http://h/d/", "RPi4.aarch64", "", "c", h));
+  CHECK(h.size() == 1 && h[0].sha256Url == "http://h/d/SHA256SUMS");
+}
+
 static void TestHelpers(void)
 {
   CHECK_EQ(ParseSha256File("0123456789abcdef0123456789abcdef0123456789ABCDEF0123456789abcdef  LibreELEC.tar\n", "LibreELEC.tar"), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
   CHECK_EQ(ParseSha256File("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  a.tar\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *dir/b.tar\n", "b.tar"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   CHECK_EQ(ParseSha256File("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n", "x"), "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
   CHECK_EQ(ParseSha256File("<html>404</html>", "x"), "");
+  // list without matching entry
+  CHECK_EQ(ParseSha256File("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  a.tar\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  b.tar\n", "c.tar"), "");
+  // single entry with a different name (renamed file) is still used
+  CHECK_EQ(ParseSha256File("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  old.tar\n", "new.tar"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   CHECK(IsUpdateFile("a.tar"));
   CHECK(IsUpdateFile("a.img.gz"));
   CHECK(!IsUpdateFile("a.tar.sha256"));
@@ -388,6 +437,7 @@ int main(void)
   TestGithub();
   TestGithubVdrSternElec();
   TestIndex();
+  TestLocalDirectory();
   TestHelpers();
   TestCompare();
   TestSort();

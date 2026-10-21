@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: vdr-vdrsternelec 0.1.0\n"
+"Project-Id-Version: vdr-vdrsternelec 0.2.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
 "POT-Creation-Date: 2026-10-21 17:30+0200\n"
 "PO-Revision-Date: 2026-10-21 17:30+0200\n"
@@ -352,3 +352,26 @@ msgstr "VDR*ELEC von Release-Servern aktualisieren"
 
 msgid "VDR*ELEC update download is running"
 msgstr "VDR*ELEC-Update wird heruntergeladen"
+
+msgid "Local/network directory"
+msgstr "Lokales/Netzwerk-Verzeichnis"
+
+msgid "Path"
+msgstr "Pfad"
+
+msgid "Invalid path (must start with /)"
+msgstr "Ungültiger Pfad (muss mit / beginnen)"
+
+msgid "The update directory can't be used as source"
+msgstr "Das Update-Verzeichnis kann nicht als Quelle verwendet werden"
+
+msgid "Invalid URL"
+msgstr "Ungültige URL"
+
+#, c-format
+msgid "Copying %d%% (%s of %s)"
+msgstr "Kopiere %d%% (%s von %s)"
+
+#, c-format
+msgid "Copying (%s)"
+msgstr "Kopiere (%s)"

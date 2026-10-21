@@ -280,7 +280,10 @@ static std::string Lower(const std::string &s)
 
 std::string ParseSha256File(const std::string &Content, const std::string &FileName)
 {
+  // A file with a single checksum (e.g. <file>.sha256) is used as is, in a
+  // list of checksums (e.g. SHA256SUMS) the entry must match the file name.
   std::string first;
+  int count = 0;
   size_t pos = 0;
   while (pos <= Content.size()) {
         size_t nl = Content.find('\n', pos);
@@ -302,8 +305,9 @@ std::string ParseSha256File(const std::string &Content, const std::string &FileN
            return Lower(hash);
         if (first.empty())
            first = Lower(hash);
+        count++;
         }
-  return first;
+  return count == 1 ? first : "";
 }
 
 // --- os-release ----------------------------------------------------------------
@@ -555,6 +559,16 @@ bool ParseGithubReleases(const std::string &Json, const std::string &Arch, const
   return false;
 }
 
+static const char *ChecksumListNames[] = { "SHA256SUMS", "sha256sums", "SHA256SUMS.txt", "sha256sums.txt", NULL };
+
+static std::string ChecksumList(const std::set<std::string> &Names)
+{
+  for (int i = 0; ChecksumListNames[i]; i++)
+      if (Names.count(ChecksumListNames[i]))
+         return ChecksumListNames[i];
+  return "";
+}
+
 // --- Directory listing ---------------------------------------------------------
 
 static std::string HtmlUnescape(const std::string &s)
@@ -629,6 +643,7 @@ bool ParseIndexHtml(const std::string &Html, const std::string &BaseUrl, const s
         hrefs.push_back(href);
         names.insert(UrlDecode(LastPathComponent(href)));
         }
+  std::string list = ChecksumList(names);
   std::set<std::string> seen;
   for (size_t i = 0; i < hrefs.size(); i++) {
       std::string name = UrlDecode(LastPathComponent(hrefs[i]));
@@ -641,7 +656,72 @@ bool ParseIndexHtml(const std::string &Html, const std::string &BaseUrl, const s
       r.url = ResolveUrl(base, hrefs[i]);
       if (names.count(name + ".sha256"))
          r.sha256Url = r.url + ".sha256";
+      else if (!list.empty())
+         r.sha256Url = ResolveUrl(base, list);
       r.label = LabelFromName(name, Arch);
+      Releases.push_back(r);
+      }
+  return true;
+}
+
+// --- Local directory -------------------------------------------------------------
+
+std::string PathToFileUrl(const std::string &Path)
+{
+  static const char *hex = "0123456789ABCDEF";
+  std::string r = "file://";
+  for (size_t i = 0; i < Path.size(); i++) {
+      unsigned char c = Path[i];
+      if (isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.' || c == '~')
+         r += char(c);
+      else {
+         r += '%';
+         r += hex[c >> 4];
+         r += hex[c & 0x0F];
+         }
+      }
+  return r;
+}
+
+std::string LocalPath(const std::string &Spec)
+{
+  std::string s = Trim(Spec);
+  if (StartsWith(s, "file://"))
+     s = UrlDecode(s.substr(7));
+  if (s.empty() || s[0] != '/')
+     return "";
+  while (s.size() > 1 && s[s.size() - 1] == '/')
+        s.erase(s.size() - 1);
+  return s;
+}
+
+bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string &Dir, const std::string &Arch, const std::string &Filter, const std::string &Channel, std::vector<cReleaseInfo> &Releases)
+{
+  std::string dir = LocalPath(Dir);
+  if (dir.empty())
+     return false;
+  if (dir != "/")
+     dir += "/";
+  std::set<std::string> names;
+  for (size_t i = 0; i < Files.size(); i++)
+      names.insert(Files[i].name);
+  std::string list = ChecksumList(names);
+  for (size_t i = 0; i < Files.size(); i++) {
+      const cLocalFile &f = Files[i];
+      if (!IsUpdateFile(f.name) || !MatchesArch(f.name, Arch, Filter))
+         continue;
+      cReleaseInfo r;
+      r.channel = Channel;
+      r.name = f.name;
+      r.url = PathToFileUrl(dir + f.name);
+      r.size = f.size;
+      r.timestamp = f.mtime;
+      r.local = true;
+      if (names.count(f.name + ".sha256"))
+         r.sha256Url = PathToFileUrl(dir + f.name + ".sha256");
+      else if (!list.empty())
+         r.sha256Url = PathToFileUrl(dir + list);
+      r.label = LabelFromName(f.name, Arch);
       Releases.push_back(r);
       }
   return true;

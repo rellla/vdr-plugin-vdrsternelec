@@ -295,6 +295,11 @@ bool cUpdater::RequestInstall(const cReleaseInfo &Release, std::string &Error)
      Error = tr("Invalid file name");
      return false;
      }
+  // file:// is only allowed for releases from a local directory
+  if ((Release.url.compare(0, 7, "file://") == 0) != Release.local || (Release.local && Release.sha256Url.compare(0, 7, "file://") != 0 && !Release.sha256Url.empty())) {
+     Error = tr("Invalid URL");
+     return false;
+     }
   installRelease = Release;
   installRequested = true;
   abortDownload = false;
@@ -345,8 +350,8 @@ std::string cUpdater::StateText(void)
     case usChecking: return tr("Checking for updates...");
     case usDownloading: {
          if (dlTotal > 0)
-            return cString::sprintf(tr("Downloading %d%% (%s of %s)"), int(dlNow * 100 / dlTotal), FormatSize(dlNow).c_str(), FormatSize(dlTotal).c_str()).operator const char*();
-         return cString::sprintf(tr("Downloading (%s)"), FormatSize(dlNow).c_str()).operator const char*();
+            return cString::sprintf(current.local ? tr("Copying %d%% (%s of %s)") : tr("Downloading %d%% (%s of %s)"), int(dlNow * 100 / dlTotal), FormatSize(dlNow).c_str(), FormatSize(dlTotal).c_str()).operator const char*();
+         return cString::sprintf(current.local ? tr("Copying (%s)") : tr("Downloading (%s)"), FormatSize(dlNow).c_str()).operator const char*();
          }
     case usVerifying: return tr("Verifying checksum...");
     case usReady:     return tr("Update ready - reboot to install");
@@ -552,6 +557,46 @@ void cUpdater::FetchServer(const cServerEntry &Server, cServerResult &Result)
             }
          }
          break;
+    case stDir: {
+         std::string dir = LocalPath(Server.url);
+         if (dir.empty()) {
+            err = tr("Invalid path (must start with /)");
+            break;
+            }
+         std::string updateDir = LocalPath(PluginConfig.UpdateDir);
+         char *a = realpath(dir.c_str(), NULL);
+         char *b = realpath(updateDir.c_str(), NULL);
+         bool same = a && b && strcmp(a, b) == 0;
+         free(a);
+         free(b);
+         if (same) {
+            err = tr("The update directory can't be used as source");
+            break;
+            }
+         DIR *d = opendir(dir.c_str());
+         if (!d) {
+            err = cString::sprintf("%s: %s", dir.c_str(), strerror(errno)).operator const char*();
+            break;
+            }
+         std::vector<cLocalFile> files;
+         struct dirent *e;
+         while ((e = readdir(d)) != NULL) {
+               if (e->d_name[0] == '.')
+                  continue;
+               struct stat st;
+               std::string path = dir + "/" + e->d_name;
+               if (stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+                  cLocalFile f;
+                  f.name = e->d_name;
+                  f.size = st.st_size;
+                  f.mtime = st.st_mtime;
+                  files.push_back(f);
+                  }
+               }
+         closedir(d);
+         ok = ParseLocalDirectory(files, dir, arch, Server.filter, Server.name, Result.releases);
+         }
+         break;
     case stIndex: {
          if (HttpGet(Server.url, data, err))
             ok = ParseIndexHtml(data, Server.url, arch, Server.filter, Server.name, Result.releases);
@@ -703,6 +748,8 @@ bool cUpdater::DoInstall(const cReleaseInfo &Release)
   // download
   cDownloadProgress progress(this);
   std::string err;
+  if (Release.local)
+     isyslog_plg("installing %s from local directory", Release.name.c_str());
   if (!HttpDownload(Release.url, part, &progress, err)) {
      unlink(part.c_str());
      esyslog_plg("download of %s failed: %s", Release.url.c_str(), err.c_str());

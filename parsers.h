@@ -31,7 +31,8 @@ struct cReleaseInfo {
   long long size;        ///< file size in bytes, -1 if unknown
   time_t timestamp;      ///< build/upload time, 0 if unknown
   bool prerelease;       ///< marked as pre-release (GitHub)
-  cReleaseInfo(void) : size(-1), timestamp(0), prerelease(false) {}
+  bool local;            ///< file in a local directory (url is file://)
+  cReleaseInfo(void) : size(-1), timestamp(0), prerelease(false), local(false) {}
   };
 
 // --- System information ------------------------------------------------------
@@ -70,9 +71,24 @@ bool ParseGithubReleases(const std::string &Json, const std::string &Arch, const
 bool ParseIndexHtml(const std::string &Html, const std::string &BaseUrl, const std::string &Arch, const std::string &Filter, const std::string &Channel, std::vector<cReleaseInfo> &Releases);
   ///< Parses a plain HTTP directory listing (any HTML containing links).
 
+struct cLocalFile {
+  std::string name;
+  long long size;
+  time_t mtime;
+  };
+
+bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string &Dir, const std::string &Arch, const std::string &Filter, const std::string &Channel, std::vector<cReleaseInfo> &Releases);
+  ///< Builds the releases from the files of a local (or mounted network)
+  ///< directory. Checksums are taken from <file>.sha256 or SHA256SUMS.
+  ///< Returns false if Dir is no absolute path.
+
+std::string LocalPath(const std::string &Spec);
+  ///< Returns the absolute path for "/path" or "file:///path", "" if invalid.
+std::string PathToFileUrl(const std::string &Path);
+
 std::string ParseSha256File(const std::string &Content, const std::string &FileName);
-  ///< Extracts the checksum from the contents of a .sha256 file.
-  ///< Returns an empty string if none is found.
+  ///< Extracts the checksum for FileName from the contents of a .sha256 file
+  ///< or a checksum list (SHA256SUMS). Returns an empty string if none is found.
 
 // --- Helpers -----------------------------------------------------------------
 
