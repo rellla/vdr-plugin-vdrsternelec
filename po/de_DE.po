@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: vdr-vdrsternelec 0.2.0\n"
+"Project-Id-Version: vdr-vdrsternelec 0.3.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
 "POT-Creation-Date: 2026-10-21 17:30+0200\n"
 "PO-Revision-Date: 2026-10-21 17:30+0200\n"
@@ -141,8 +141,6 @@ msgstr "Server"
 msgid "Channel"
 msgstr "Kanal"
 
-msgid "Date"
-msgstr "Datum"
 
 msgid "Size"
 msgstr "Größe"
@@ -375,3 +373,24 @@ msgstr "Kopiere %d%% (%s von %s)"
 #, c-format
 msgid "Copying (%s)"
 msgstr "Kopiere (%s)"
+
+msgid "Address"
+msgstr "Adresse"
+
+msgid "Build date"
+msgstr "Build-Datum"
+
+msgid "Invalid SMB address (use smb://server/share/path)"
+msgstr "Ungültige SMB-Adresse (smb://server/freigabe/pfad angeben)"
+
+msgid "SMB support not available in this build"
+msgstr "SMB-Unterstützung ist in diesem Build nicht verfügbar"
+
+msgid "Samba share"
+msgstr "Samba-Freigabe"
+
+msgid "Server not found"
+msgstr "Server nicht gefunden"
+
+msgid "Update"
+msgstr "Update"

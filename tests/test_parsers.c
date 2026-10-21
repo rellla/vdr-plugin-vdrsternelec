@@ -292,7 +292,7 @@ static void TestLocalDirectory(void)
       files.push_back(f);
       }
   std::vector<cReleaseInfo> r;
-  CHECK(ParseLocalDirectory(files, "/media/NAS Share/vdrelec/", "RPi4.aarch64", "", "NAS", r));
+  CHECK(ParseLocalDirectory(files, PathToFileUrl("/media/NAS Share/vdrelec") + "/", "RPi4.aarch64", "", "NAS", r));
   CHECK(r.size() == 2);
   if (r.size() == 2) {
      CHECK(r[0].local);
@@ -314,6 +314,16 @@ static void TestLocalDirectory(void)
   CHECK(r.size() == 2 && r[1].sha256Url == "file:///srv/up/SHA256SUMS");
   r.clear();
   CHECK(!ParseLocalDirectory(files, "relative/path", "RPi4.aarch64", "", "x", r));
+  CHECK(!ParseLocalDirectory(files, "http://host/dir/", "RPi4.aarch64", "", "x", r));
+  // SMB share
+  r.clear();
+  CHECK(ParseLocalDirectory(files, "smb://nas/share/vdr elec", "RPi4.aarch64", "", "NAS", r));
+  CHECK(r.size() == 2);
+  if (r.size() == 2) {
+     CHECK(r[0].local);
+     CHECK_EQ(r[0].url, "smb://nas/share/vdr elec/LibreELEC-RPi4.aarch64-13.0-VDR-0724.tar");
+     CHECK_EQ(r[0].sha256Url, "smb://nas/share/vdr elec/LibreELEC-RPi4.aarch64-13.0-VDR-0724.tar.sha256");
+     }
   CHECK_EQ(LocalPath("file:///media/NAS%20Share/"), "/media/NAS Share");
   CHECK_EQ(LocalPath("/storage/updates/"), "/storage/updates");
   CHECK_EQ(LocalPath("smb://nas/share"), "");
@@ -321,6 +331,109 @@ static void TestLocalDirectory(void)
   std::vector<cReleaseInfo> h;
   CHECK(ParseIndexHtml("<a href=\"LibreELEC-RPi4.aarch64-13.0.tar\">a</a><a href=\"SHA256SUMS\">s</a>", "http://h/d/", "RPi4.aarch64", "", "c", h));
   CHECK(h.size() == 1 && h[0].sha256Url == "http://h/d/SHA256SUMS");
+}
+
+static void TestSmbUrl(void)
+{
+  cSmbUrl u;
+  CHECK(ParseSmbUrl("smb://nas/vdr/updates/", u));
+  CHECK_EQ(u.url, "smb://nas/vdr/updates");
+  CHECK_EQ(u.server, "nas");
+  CHECK(u.user.empty() && u.password.empty() && u.domain.empty());
+  CHECK(ParseSmbUrl("smb://WORKGROUP;user:p%40ss:w@192.168.1.10/share", u));
+  CHECK_EQ(u.url, "smb://192.168.1.10/share");
+  CHECK_EQ(u.domain, "WORKGROUP");
+  CHECK_EQ(u.user, "user");
+  CHECK_EQ(u.password, "p@ss:w");
+  CHECK(ParseSmbUrl("smb://guest@nas/share/a@b", u));
+  CHECK_EQ(u.user, "guest");
+  CHECK_EQ(u.url, "smb://nas/share/a@b");
+  CHECK(!ParseSmbUrl("smb://nas", u));
+  CHECK(!ParseSmbUrl("smb://nas/", u));
+  CHECK(!ParseSmbUrl("http://nas/share", u));
+  CHECK_EQ(RedactUrl("smb://user:secret@nas/share/x"), "smb://user:***@nas/share/x");
+  CHECK_EQ(RedactUrl("smb://nas/share/x"), "smb://nas/share/x");
+  CHECK_EQ(RedactUrl("https://x/y"), "https://x/y");
+  CHECK(IsFileSourceUrl("smb://nas/share/x.tar"));
+  CHECK(IsFileSourceUrl("file:///x.tar"));
+  CHECK(!IsFileSourceUrl("file://host/x.tar"));
+  CHECK(!IsFileSourceUrl("https://x/x.tar"));
+}
+
+static void TestLocalJson(void)
+{
+  const char *json =
+    "{\"VDRSternELEC-13\": {\"url\": \"https://elsewhere.example.org/\", \"project\": {\"RPi4.aarch64\": {\"releases\": {\n"
+    "  \"0\": {\"file\": {\"name\": \"LibreELEC-RPi4.aarch64-13.0-devel-20261101120000-abc1234.tar\", \"subpath\": \"13.0/RPi\", \"sha256\": \"" "1111111111111111111111111111111111111111111111111111111111111111" "\"}},\n"
+    "  \"1\": {\"file\": {\"name\": \"evil.tar\", \"subpath\": \"../../etc\"}},\n"
+    "  \"2\": {\"file\": {\"name\": \"my file.tar\", \"subpath\": \"\"}}}}}}}";
+  std::vector<cReleaseInfo> r;
+  std::string err;
+  CHECK(ParseReleasesJson(json, "smb://nas/share/vdr/releases.json", "RPi4.aarch64", "", "", r, err, true));
+  CHECK(r.size() == 2);
+  if (r.size() == 2) {
+     CHECK(r[0].local);
+     CHECK_EQ(r[0].url, "smb://nas/share/vdr/13.0/RPi/LibreELEC-RPi4.aarch64-13.0-devel-20261101120000-abc1234.tar");
+     CHECK_EQ(r[0].sha256, "1111111111111111111111111111111111111111111111111111111111111111");
+     CHECK_EQ(r[1].url, "smb://nas/share/vdr/my%20file.tar");
+     }
+  r.clear();
+  CHECK(ParseReleasesJson(json, PathToFileUrl("/media/usb") + "/releases.json", "RPi4.aarch64", "", "", r, err, true));
+  CHECK(r.size() == 2 && r[0].url == "file:///media/usb/13.0/RPi/LibreELEC-RPi4.aarch64-13.0-devel-20261101120000-abc1234.tar");
+  // remote: channel url is used, not marked local
+  r.clear();
+  CHECK(ParseReleasesJson(json, "https://x/releases.json", "RPi4.aarch64", "", "", r, err));
+  CHECK(r.size() == 3 && !r[0].local && r[0].url == "https://elsewhere.example.org/13.0/RPi/LibreELEC-RPi4.aarch64-13.0-devel-20261101120000-abc1234.tar");
+}
+
+static void TestBuildDate(void)
+{
+  // os-release of LibreELEC >= 12 uses DISTRO_*
+  cSysInfo info;
+  CHECK(ParseOsRelease("NAME=\"LibreELEC\"\nVERSION=\"13.0-devel-20261020103000-abc1234\"\nDISTRO_ARCH=\"RPi4.aarch64\"\nDISTRO_BUILD=\"community\"\nDISTRO_PROJECT=\"RPi\"\nDISTRO_DEVICE=\"RPi4\"\n", info));
+  CHECK_EQ(info.arch, "RPi4.aarch64");
+  CHECK_EQ(info.project, "RPi");
+  CHECK_EQ(info.device, "RPi4");
+  CHECK_EQ(info.build, "community");
+  time_t t;
+  bool hasTime;
+  CHECK(InstalledBuildDate(info, t, hasTime));
+  CHECK(hasTime);
+  CHECK_EQ(FormatBuildDate(t, hasTime), "20.10.2026 10:30");
+  // date only, refined by the time of os-release on the same day
+  cSysInfo n;
+  n.version = "12.2-nightly-20251005-7adb5c2";
+  CHECK(InstalledBuildDate(n, t, hasTime));
+  CHECK(!hasTime);
+  CHECK_EQ(FormatBuildDate(t, hasTime), "05.10.2025");
+  struct tm tm;
+  memset(&tm, 0, sizeof(tm));
+  tm.tm_year = 125; tm.tm_mon = 9; tm.tm_mday = 5; tm.tm_hour = 3; tm.tm_min = 7; tm.tm_isdst = -1;
+  n.buildTime = mktime(&tm);
+  CHECK(InstalledBuildDate(n, t, hasTime));
+  CHECK(hasTime);
+  CHECK_EQ(FormatBuildDate(t, hasTime), "05.10.2025 03:07");
+  // no date in the version: time of os-release
+  cSysInfo v;
+  v.version = "13.0.1";
+  v.buildTime = n.buildTime;
+  CHECK(InstalledBuildDate(v, t, hasTime) && hasTime);
+  v.buildTime = 0;
+  CHECK(!InstalledBuildDate(v, t, hasTime));
+  // releases
+  cReleaseInfo r;
+  r.name = "LibreELEC-RPi4.aarch64-13.0-devel-20261101120000-abc1234.tar";
+  r.timestamp = ParseTimestamp("2026-11-02 08:00:00");
+  CHECK(ReleaseBuildDate(r, t, hasTime) && hasTime);
+  CHECK_EQ(FormatBuildDate(t, hasTime), "01.11.2026 12:00"); // build time from the name wins
+  r.name = "CE-Amlogic-ne.aarch64-20.5-VDR-0724.tar";
+  CHECK(ReleaseBuildDate(r, t, hasTime) && hasTime && t == r.timestamp);
+  r.timestamp = 0;
+  r.channel = "2026-07-24.1-CoreELEC-20-Release";
+  CHECK(ReleaseBuildDate(r, t, hasTime) && !hasTime);
+  CHECK_EQ(FormatBuildDate(t, hasTime), "24.07.2026");
+  r.channel = "";
+  CHECK(!ReleaseBuildDate(r, t, hasTime));
 }
 
 static void TestHelpers(void)
@@ -438,6 +551,9 @@ int main(void)
   TestGithubVdrSternElec();
   TestIndex();
   TestLocalDirectory();
+  TestSmbUrl();
+  TestLocalJson();
+  TestBuildDate();
   TestHelpers();
   TestCompare();
   TestSort();

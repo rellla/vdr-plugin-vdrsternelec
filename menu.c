@@ -10,6 +10,7 @@
 
 #include "menu.h"
 #include "common.h"
+#include "filesource.h"
 #include "updater.h"
 #include <vdr/interface.h>
 #include <vdr/menu.h>
@@ -21,17 +22,9 @@ static const char *UrlChars = " abcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!
 
 static std::string FormatDate(const cReleaseInfo &r)
 {
-  char buf[32];
-  if (r.timestamp) {
-     struct tm tm;
-     localtime_r(&r.timestamp, &tm);
-     strftime(buf, sizeof(buf), "%d.%m.%Y %H:%M", &tm);
-     return buf;
-     }
-  std::string d = ExtractDate(r.name);
-  if (d.size() == 8)
-     return d.substr(6, 2) + "." + d.substr(4, 2) + "." + d.substr(0, 4);
-  return "";
+  time_t t;
+  bool hasTime;
+  return ReleaseBuildDate(r, t, hasTime) ? FormatBuildDate(t, hasTime) : std::string();
 }
 
 static const char *CompareMark(eCompareResult c)
@@ -105,10 +98,19 @@ void cMenuUpdateMain::Set(void)
   lastStateText = Updater.StateText();
   lastCheck = Updater.LastCheck();
   std::string message = Updater.Message();
+  time_t t;
+  bool hasTime;
   AddInfo(tr("Installed"), info.version.empty() ? tr("unknown") : info.version);
+  AddInfo(tr("Build date"), InstalledBuildDate(info, t, hasTime) ? FormatBuildDate(t, hasTime) : std::string(tr("unknown")));
   AddInfo(tr("Device"), info.arch.empty() ? tr("unknown") : info.arch);
   AddInfo(tr("Status"), lastStateText);
-  if (!message.empty())
+  cReleaseInfo pending = Updater.PendingRelease();
+  if (state == cUpdater::usReady && !pending.name.empty()) {
+     AddInfo(tr("Update"), pending.label.empty() ? pending.name : pending.label);
+     AddInfo(tr("Build date"), ReleaseBuildDate(pending, t, hasTime) ? FormatBuildDate(t, hasTime) : std::string(tr("unknown")));
+     AddInfo(tr("File"), pending.name);
+     }
+  else if (!message.empty())
      AddInfo(state == cUpdater::usError ? tr("Error") : tr("File"), message);
   AddInfo(tr("Last check"), lastCheck ? std::string(*DayDateTime(lastCheck)) : std::string(tr("never")));
   Add(new cOsdItem("", osUnknown, false));
@@ -329,7 +331,7 @@ eOSState cMenuReleases::Info(void)
      tr("Status"), cmp,
      tr("Server"), r->server.c_str(),
      tr("Channel"), r->channel.c_str(),
-     tr("Date"), FormatDate(*r).empty() ? tr("unknown") : FormatDate(*r).c_str(),
+     tr("Build date"), FormatDate(*r).empty() ? tr("unknown") : FormatDate(*r).c_str(),
      tr("Size"), FormatSize(r->size).c_str(),
      tr("Pre-release"), r->prerelease ? tr("yes") : tr("no"),
      tr("Board"), r->board.empty() ? "-" : r->board.c_str(),
@@ -455,6 +457,7 @@ cMenuServerEdit::cMenuServerEdit(std::vector<cServerEntry> *Servers, int Index)
   typeNames[stGithub] = tr("GitHub");
   typeNames[stIndex] = tr("Directory listing");
   typeNames[stDir] = tr("Local/network directory");
+  typeNames[stSmb] = tr("Samba share");
   Set();
 }
 
@@ -464,8 +467,8 @@ void cMenuServerEdit::Set(void)
   Add(new cMenuEditStraItem(tr("Type"), &type, stTypes, typeNames));
   Add(new cMenuEditBoolItem(tr("Enabled"), &enabled));
   Add(new cMenuEditStrItem(tr("Name"), name, sizeof(name)));
-  Add(new cMenuEditStrItem(type == stGithub ? tr("Repository") : type == stDir ? tr("Path") : tr("URL"), url, sizeof(url), UrlChars));
-  if (type != stIndex && type != stDir)
+  Add(new cMenuEditStrItem(type == stGithub ? tr("Repository") : type == stDir ? tr("Path") : type == stSmb ? tr("Address") : tr("URL"), url, sizeof(url), UrlChars));
+  if (type != stIndex)
      Add(new cMenuEditStrItem(type == stGithub ? tr("Tag contains") : tr("Channel"), channel, sizeof(channel), UrlChars));
   Add(new cMenuEditStrItem(tr("Filter (regex)"), filter, sizeof(filter), UrlChars));
   Display();
@@ -497,6 +500,13 @@ eOSState cMenuServerEdit::ProcessKey(eKeys Key)
         Skins.Message(mtError, tr("Invalid path (must start with /)"));
         return osContinue;
         }
+     cSmbUrl smb;
+     if (e.type == stSmb && !ParseSmbUrl(e.url, smb)) {
+        Skins.Message(mtError, tr("Invalid SMB address (use smb://server/share/path)"));
+        return osContinue;
+        }
+     if (e.type == stSmb && !HaveSmbSupport())
+        Skins.Message(mtWarning, tr("SMB support not available in this build"));
      if (e.type == stGithub && GithubApiUrl(e.url).empty()) {
         Skins.Message(mtError, tr("Invalid GitHub repository (use owner/repo)"));
         return osContinue;

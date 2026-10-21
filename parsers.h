@@ -57,11 +57,14 @@ bool ParseOsRelease(const std::string &Content, cSysInfo &Info);
 
 // --- Source parsers ----------------------------------------------------------
 
-bool ParseReleasesJson(const std::string &Json, const std::string &BaseUrl, const std::string &Arch, const std::string &ChannelFilter, const std::string &Board, std::vector<cReleaseInfo> &Releases, std::string &Error);
+bool ParseReleasesJson(const std::string &Json, const std::string &BaseUrl, const std::string &Arch, const std::string &ChannelFilter, const std::string &Board, std::vector<cReleaseInfo> &Releases, std::string &Error, bool Local = false);
   ///< Parses a LibreELEC style releases.json. BaseUrl is used as download
   ///< base if a channel provides no "url" of its own. If ChannelFilter is not
   ///< empty, only that channel is used. If Board is not empty, u-boot images
   ///< are restricted to that board.
+  ///< If Local is true (releases.json in a local directory or SMB share),
+  ///< the files are always taken relative to the directory of the JSON file
+  ///< (BaseUrl), "url" entries of the channels are ignored.
 
 bool ParseGithubReleases(const std::string &Json, const std::string &Arch, const std::string &ChannelFilter, const std::string &Filter, std::vector<cReleaseInfo> &Releases, std::string &Error);
   ///< Parses the result of the GitHub API call /repos/<owner>/<repo>/releases
@@ -77,10 +80,38 @@ struct cLocalFile {
   time_t mtime;
   };
 
-bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string &Dir, const std::string &Arch, const std::string &Filter, const std::string &Channel, std::vector<cReleaseInfo> &Releases);
-  ///< Builds the releases from the files of a local (or mounted network)
-  ///< directory. Checksums are taken from <file>.sha256 or SHA256SUMS.
-  ///< Returns false if Dir is no absolute path.
+bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string &BaseUrl, const std::string &Arch, const std::string &Filter, const std::string &Channel, std::vector<cReleaseInfo> &Releases);
+  ///< Builds the releases from the files of a local directory or an SMB
+  ///< share. BaseUrl is the URL of the directory (file:///... or smb://...).
+  ///< Checksums are taken from <file>.sha256 or SHA256SUMS.
+  ///< Returns false if BaseUrl is no file:// or smb:// URL.
+
+bool IsFileSourceUrl(const std::string &Url);
+  ///< True for file:/// and smb:// URLs.
+std::string EncodePath(const std::string &Path);
+  ///< Percent-encodes a path for use in a URL ('/' is kept).
+
+struct cSmbUrl {
+  std::string url;       ///< smb://server/share[/path] without credentials
+  std::string server;
+  std::string domain;
+  std::string user;
+  std::string password;
+  };
+
+bool ParseSmbUrl(const std::string &Url, cSmbUrl &Result);
+  ///< Parses smb://[[domain;]user[:password]@]server/share[/path].
+  ///< Returns false if Url is no valid SMB URL (server and share required).
+std::string RedactUrl(const std::string &Url);
+  ///< Replaces the password of an SMB URL by "***".
+
+bool InstalledBuildDate(const cSysInfo &Info, time_t &Time, bool &HasTime);
+  ///< Build date of the installed system: from the version (devel builds
+  ///< contain YYYYMMDDhhmmss) or the time of os-release.
+bool ReleaseBuildDate(const cReleaseInfo &Release, time_t &Time, bool &HasTime);
+  ///< Build date of a release: from the file name, the timestamp of the
+  ///< server or a date in the label, name or tag.
+std::string FormatBuildDate(time_t Time, bool HasTime);
 
 std::string LocalPath(const std::string &Spec);
   ///< Returns the absolute path for "/path" or "file:///path", "" if invalid.

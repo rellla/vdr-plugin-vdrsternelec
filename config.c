@@ -62,7 +62,7 @@ bool cPluginConfig::SetupParse(const char *Name, const char *Value)
 
 // --- cServerEntry --------------------------------------------------------------
 
-static const char *ServerTypeNames[stTypes] = { "json", "github", "index", "dir" };
+static const char *ServerTypeNames[stTypes] = { "json", "github", "index", "dir", "smb" };
 
 const char *ServerTypeName(int Type)
 {
@@ -192,7 +192,9 @@ bool cServerList::Save(void)
   fprintf(f, "#           github = GitHub releases, url is owner/repo\n");
   fprintf(f, "#           index  = plain HTTP directory listing\n");
   fprintf(f, "#           dir    = local or mounted network directory, url is the path\n");
-  fprintf(f, "#   channel channel (json) or tag (github) to use, empty = all\n");
+  fprintf(f, "#           smb    = Samba share, url is smb://[[domain;]user[:password]@]server/share/path\n");
+  fprintf(f, "#           dir and smb use a releases.json in the directory if there is one\n");
+  fprintf(f, "#   channel channel (json, dir, smb) or text contained in the tag (github), empty = all\n");
   fprintf(f, "#   filter  optional regular expression for file names\n");
   fprintf(f, "#   A leading '!' disables an entry.\n");
   for (size_t i = 0; i < servers.size(); i++)

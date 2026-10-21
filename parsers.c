@@ -346,7 +346,7 @@ bool ParseOsRelease(const std::string &Content, cSysInfo &Info)
   Info.distName = kv["NAME"];
   Info.version = kv["VERSION"];
   Info.versionId = kv["VERSION_ID"];
-  const char *Prefixes[] = { "LIBREELEC_", "COREELEC_", NULL };
+  const char *Prefixes[] = { "DISTRO_", "LIBREELEC_", "COREELEC_", NULL };
   for (int i = 0; Prefixes[i]; i++) {
       std::string p = Prefixes[i];
       if (Info.arch.empty())    Info.arch = kv[p + "ARCH"];
@@ -388,15 +388,22 @@ static std::string LastPathComponent(const std::string &s)
   return p == std::string::npos ? t : t.substr(p + 1);
 }
 
-static bool AddJsonEntry(const cJsonValue &Entry, const std::string &Channel, const std::string &ChannelUrl, const std::string &PrettyRegex, const std::string &Arch, const std::string &Board, bool IsUboot, std::vector<cReleaseInfo> &Releases)
+static bool AddJsonEntry(const cJsonValue &Entry, const std::string &Channel, const std::string &ChannelUrl, const std::string &PrettyRegex, const std::string &Arch, const std::string &Board, bool IsUboot, bool Local, std::vector<cReleaseInfo> &Releases)
 {
   if (!Entry.IsObject())
      return false;
   cReleaseInfo r;
   r.name = Entry.GetString("name");
-  if (r.name.empty() || !IsUpdateFile(r.name))
+  if (r.name.empty() || !IsUpdateFile(r.name) || r.name.find('/') != std::string::npos)
      return false;
   std::string subpath = Entry.GetString("subpath");
+  if (Local) {
+     // stay below the directory of releases.json
+     std::string p = "/" + subpath + "/";
+     if (p.find("/../") != std::string::npos)
+        return false;
+     r.local = true;
+     }
   if (IsUboot) {
      r.board = LastPathComponent(subpath);
      if (r.board.empty()) {
@@ -410,7 +417,7 @@ static bool AddJsonEntry(const cJsonValue &Entry, const std::string &Channel, co
         return false;
      }
   r.channel = Channel;
-  r.url = JoinUrl(ChannelUrl, subpath, r.name);
+  r.url = Local ? JoinUrl(ChannelUrl, EncodePath(subpath), EncodePath(r.name)) : JoinUrl(ChannelUrl, subpath, r.name);
   r.sha256 = Lower(Entry.GetString("sha256"));
   if (!IsHexDigest(r.sha256))
      r.sha256.clear();
@@ -427,7 +434,7 @@ static bool AddJsonEntry(const cJsonValue &Entry, const std::string &Channel, co
   return true;
 }
 
-bool ParseReleasesJson(const std::string &Json, const std::string &BaseUrl, const std::string &Arch, const std::string &ChannelFilter, const std::string &Board, std::vector<cReleaseInfo> &Releases, std::string &Error)
+bool ParseReleasesJson(const std::string &Json, const std::string &BaseUrl, const std::string &Arch, const std::string &ChannelFilter, const std::string &Board, std::vector<cReleaseInfo> &Releases, std::string &Error, bool Local)
 {
   cJsonValue root;
   if (!JsonParse(Json, root, Error))
@@ -446,7 +453,8 @@ bool ParseReleasesJson(const std::string &Json, const std::string &BaseUrl, cons
       if (!ChannelFilter.empty() && channel != ChannelFilter)
          continue;
       channelFound = true;
-      std::string chUrl = ch.GetString("url", base);
+      // files of a local releases.json are always relative to its directory
+      std::string chUrl = Local ? base : ch.GetString("url", base);
       std::string pretty = ch.GetString("prettyname_regex");
       const cJsonValue *project = ch.Get("project");
       const cJsonValue *proj = project ? project->Get(Arch) : NULL;
@@ -468,13 +476,13 @@ bool ParseReleasesJson(const std::string &Json, const std::string &BaseUrl, cons
           const cJsonValue *image = e->Get("image");
           const cJsonValue *uboot = e->Get("uboot");
           // prefer the update tarball, like the LibreELEC settings add-on
-          if (file && AddJsonEntry(*file, channel, chUrl, pretty, Arch, Board, false, Releases))
+          if (file && AddJsonEntry(*file, channel, chUrl, pretty, Arch, Board, false, Local, Releases))
              continue;
-          if (image && AddJsonEntry(*image, channel, chUrl, pretty, Arch, Board, false, Releases))
+          if (image && AddJsonEntry(*image, channel, chUrl, pretty, Arch, Board, false, Local, Releases))
              continue;
           if (uboot && uboot->IsArray()) {
              for (size_t u = 0; u < uboot->Array().size(); u++)
-                 AddJsonEntry(uboot->Array()[u], channel, chUrl, pretty, Arch, Board, true, Releases);
+                 AddJsonEntry(uboot->Array()[u], channel, chUrl, pretty, Arch, Board, true, Local, Releases);
              }
           }
       }
@@ -668,8 +676,13 @@ bool ParseIndexHtml(const std::string &Html, const std::string &BaseUrl, const s
 
 std::string PathToFileUrl(const std::string &Path)
 {
+  return "file://" + EncodePath(Path);
+}
+
+std::string EncodePath(const std::string &Path)
+{
   static const char *hex = "0123456789ABCDEF";
-  std::string r = "file://";
+  std::string r;
   for (size_t i = 0; i < Path.size(); i++) {
       unsigned char c = Path[i];
       if (isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.' || c == '~')
@@ -695,12 +708,17 @@ std::string LocalPath(const std::string &Spec)
   return s;
 }
 
-bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string &Dir, const std::string &Arch, const std::string &Filter, const std::string &Channel, std::vector<cReleaseInfo> &Releases)
+bool IsFileSourceUrl(const std::string &Url)
 {
-  std::string dir = LocalPath(Dir);
-  if (dir.empty())
+  return StartsWith(Url, "file:///") || StartsWith(Url, "smb://");
+}
+
+bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string &BaseUrl, const std::string &Arch, const std::string &Filter, const std::string &Channel, std::vector<cReleaseInfo> &Releases)
+{
+  if (!IsFileSourceUrl(BaseUrl))
      return false;
-  if (dir != "/")
+  std::string dir = BaseUrl;
+  if (dir[dir.size() - 1] != '/')
      dir += "/";
   std::set<std::string> names;
   for (size_t i = 0; i < Files.size(); i++)
@@ -713,18 +731,158 @@ bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string
       cReleaseInfo r;
       r.channel = Channel;
       r.name = f.name;
-      r.url = PathToFileUrl(dir + f.name);
+      r.url = dir + EncodePath(f.name);
       r.size = f.size;
       r.timestamp = f.mtime;
       r.local = true;
       if (names.count(f.name + ".sha256"))
-         r.sha256Url = PathToFileUrl(dir + f.name + ".sha256");
+         r.sha256Url = dir + EncodePath(f.name + ".sha256");
       else if (!list.empty())
-         r.sha256Url = PathToFileUrl(dir + list);
+         r.sha256Url = dir + EncodePath(list);
       r.label = LabelFromName(f.name, Arch);
       Releases.push_back(r);
       }
   return true;
+}
+
+// --- SMB URLs --------------------------------------------------------------------
+
+bool ParseSmbUrl(const std::string &Url, cSmbUrl &Result)
+{
+  // smb://[[domain;]user[:password]@]server/share[/path]
+  std::string s = Trim(Url);
+  if (!StartsWith(s, "smb://"))
+     return false;
+  s = s.substr(6);
+  Result = cSmbUrl();
+  size_t slash = s.find('/');
+  size_t at = s.rfind('@', slash == std::string::npos ? std::string::npos : slash);
+  if (at != std::string::npos && (slash == std::string::npos || at < slash)) {
+     std::string auth = s.substr(0, at);
+     s = s.substr(at + 1);
+     size_t semi = auth.find(';');
+     if (semi != std::string::npos) {
+        Result.domain = UrlDecode(auth.substr(0, semi));
+        auth = auth.substr(semi + 1);
+        }
+     size_t colon = auth.find(':');
+     Result.user = UrlDecode(auth.substr(0, colon));
+     if (colon != std::string::npos)
+        Result.password = UrlDecode(auth.substr(colon + 1));
+     }
+  while (!s.empty() && s[s.size() - 1] == '/')
+        s.erase(s.size() - 1);
+  slash = s.find('/');
+  if (slash == std::string::npos || slash == 0 || slash + 1 >= s.size())
+     return false; // server and share are required
+  Result.server = s.substr(0, slash);
+  Result.url = "smb://" + s;
+  return true;
+}
+
+std::string RedactUrl(const std::string &Url)
+{
+  cSmbUrl u;
+  if (ParseSmbUrl(Url, u) && !u.password.empty())
+     return "smb://" + (u.domain.empty() ? "" : u.domain + ";") + u.user + ":***@" + u.url.substr(6);
+  return Url;
+}
+
+// --- Build dates -------------------------------------------------------------------
+
+static bool ExtractDateTime(const std::string &s, time_t &Time, bool &HasTime)
+{
+  // YYYYMMDDhhmmss (as used in LibreELEC devel versions), interpreted as local time
+  size_t i = 0;
+  while (i < s.size()) {
+        if (!isdigit((unsigned char)s[i])) {
+           i++;
+           continue;
+           }
+        size_t j = i;
+        while (j < s.size() && isdigit((unsigned char)s[j]))
+              j++;
+        if (j - i == 14) {
+           struct tm tm;
+           memset(&tm, 0, sizeof(tm));
+           tm.tm_year = atoi(s.substr(i, 4).c_str()) - 1900;
+           tm.tm_mon = atoi(s.substr(i + 4, 2).c_str()) - 1;
+           tm.tm_mday = atoi(s.substr(i + 6, 2).c_str());
+           tm.tm_hour = atoi(s.substr(i + 8, 2).c_str());
+           tm.tm_min = atoi(s.substr(i + 10, 2).c_str());
+           tm.tm_sec = atoi(s.substr(i + 12, 2).c_str());
+           tm.tm_isdst = -1;
+           if (ValidDate(tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday) && tm.tm_hour < 24 && tm.tm_min < 60 && tm.tm_sec < 61) {
+              Time = mktime(&tm);
+              HasTime = true;
+              return true;
+              }
+           }
+        i = j;
+        }
+  std::string d = ExtractDate(s);
+  if (d.empty())
+     return false;
+  struct tm tm;
+  memset(&tm, 0, sizeof(tm));
+  tm.tm_year = atoi(d.substr(0, 4).c_str()) - 1900;
+  tm.tm_mon = atoi(d.substr(4, 2).c_str()) - 1;
+  tm.tm_mday = atoi(d.substr(6, 2).c_str());
+  tm.tm_hour = 12; // avoid date changes by time zones
+  tm.tm_isdst = -1;
+  Time = mktime(&tm);
+  HasTime = false;
+  return true;
+}
+
+bool InstalledBuildDate(const cSysInfo &Info, time_t &Time, bool &HasTime)
+{
+  time_t t;
+  bool hasTime;
+  if (ExtractDateTime(Info.version, t, hasTime)) {
+     if (!hasTime && Info.buildTime) {
+        // the image file time is more precise if it is the same day
+        struct tm a, b;
+        localtime_r(&t, &a);
+        localtime_r(&Info.buildTime, &b);
+        if (a.tm_year == b.tm_year && a.tm_yday == b.tm_yday) {
+           t = Info.buildTime;
+           hasTime = true;
+           }
+        }
+     Time = t;
+     HasTime = hasTime;
+     return true;
+     }
+  if (Info.buildTime) {
+     Time = Info.buildTime;
+     HasTime = true;
+     return true;
+     }
+  return false;
+}
+
+bool ReleaseBuildDate(const cReleaseInfo &Release, time_t &Time, bool &HasTime)
+{
+  if (ExtractDateTime(Release.name, Time, HasTime) && HasTime)
+     return true;
+  if (Release.timestamp) {
+     Time = Release.timestamp;
+     HasTime = true;
+     return true;
+     }
+  if (ExtractDateTime(Release.label, Time, HasTime) || ExtractDateTime(Release.name, Time, HasTime) || ExtractDateTime(Release.channel, Time, HasTime))
+     return true;
+  return false;
+}
+
+std::string FormatBuildDate(time_t Time, bool HasTime)
+{
+  char buf[32];
+  struct tm tm;
+  localtime_r(&Time, &tm);
+  strftime(buf, sizeof(buf), HasTime ? "%d.%m.%Y %H:%M" : "%d.%m.%Y", &tm);
+  return buf;
 }
 
 // --- Version comparison --------------------------------------------------------

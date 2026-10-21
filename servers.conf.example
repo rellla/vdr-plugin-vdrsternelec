@@ -4,7 +4,9 @@
 #           github = GitHub releases, url is owner/repo
 #           index  = plain HTTP directory listing
 #           dir    = local or mounted network directory, url is the path
-#   channel channel (json) or text contained in the tag (github), empty = all
+#           smb    = Samba share, url is smb://[[domain;]user[:password]@]server/share/path
+#           dir and smb use a releases.json in the directory if there is one
+#   channel channel (json, dir, smb) or text contained in the tag (github), empty = all
 #   filter  optional regular expression for file names
 #   A leading '!' disables an entry.
 
@@ -23,3 +25,6 @@ github|VDR*ELEC|Zabrimus/VDRSternELEC||
 # Update files in a local directory, on a USB stick or a mounted network
 # share (manual update), checksums in <file>.sha256 or SHA256SUMS
 !dir|USB stick|/var/media/USBSTICK/updates||
+
+# Samba share (directly, no mount needed), with user and password
+!smb|NAS (Samba)|smb://user:secret@nas/vdr/updates||

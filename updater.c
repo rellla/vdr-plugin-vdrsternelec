@@ -10,6 +10,7 @@
 
 #include "updater.h"
 #include "common.h"
+#include "filesource.h"
 #include "http.h"
 #include "json.h"
 #include "sha256.h"
@@ -164,6 +165,14 @@ void cUpdater::LoadState(void)
      return;
   cMutexLock MutexLock(&mutex);
   std::string pendingName = pendingFile.empty() ? "" : pendingFile.substr(pendingFile.rfind('/') + 1);
+  if (!pendingName.empty() && kv["name"] == pendingName) {
+     // restore what we knew about the downloaded release
+     if (!kv["label"].empty())
+        pendingRelease.label = kv["label"];
+     pendingRelease.timestamp = atol(kv["timestamp"].c_str());
+     pendingRelease.channel = kv["channel"];
+     pendingRelease.server = kv["server"];
+     }
   if (!pendingName.empty() && kv["rebootFor"] == pendingName) {
      esyslog_plg("system was rebooted for %s, but the update is still there - not rebooting automatically again", pendingName.c_str());
      autoRebootBlocked = true;
@@ -211,6 +220,10 @@ void cUpdater::SaveState(const cReleaseInfo &Release)
     kv["key"] = ReleaseKey(Release);
     kv["preVersion"] = sysInfo.version;
     kv["preBuild"] = std::string(*cString::sprintf("%lld", (long long)sysInfo.buildTime));
+    kv["label"] = Release.label;
+    kv["timestamp"] = std::string(*cString::sprintf("%lld", (long long)Release.timestamp));
+    kv["channel"] = Release.channel;
+    kv["server"] = Release.server;
   }
   WriteState(stateFile, kv);
 }
@@ -269,6 +282,9 @@ void cUpdater::FindPendingUpdate(void)
   if (!found.empty()) {
      cMutexLock MutexLock(&mutex);
      pendingFile = dir + "/" + found;
+     pendingRelease = cReleaseInfo();
+     pendingRelease.name = found;
+     pendingRelease.label = LabelFromName(found, Arch());
      state = usReady;
      message = found;
      isyslog_plg("update %s is waiting to be installed", pendingFile.c_str());
@@ -295,8 +311,8 @@ bool cUpdater::RequestInstall(const cReleaseInfo &Release, std::string &Error)
      Error = tr("Invalid file name");
      return false;
      }
-  // file:// is only allowed for releases from a local directory
-  if ((Release.url.compare(0, 7, "file://") == 0) != Release.local || (Release.local && Release.sha256Url.compare(0, 7, "file://") != 0 && !Release.sha256Url.empty())) {
+  // file:// and smb:// are only allowed for releases from directories/shares
+  if (IsFileSourceUrl(Release.url) != Release.local || (!Release.sha256Url.empty() && (IsFileSourceUrl(Release.sha256Url) != Release.local || Release.sha256Url.compare(0, 6, Release.url.substr(0, 6)) != 0))) {
      Error = tr("Invalid URL");
      return false;
      }
@@ -411,6 +427,12 @@ bool cUpdater::UpdatePending(void)
   return !pendingFile.empty() && state != usDownloading && state != usVerifying;
 }
 
+cReleaseInfo cUpdater::PendingRelease(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return pendingFile.empty() ? cReleaseInfo() : pendingRelease;
+}
+
 std::string cUpdater::PendingFile(void)
 {
   cMutexLock MutexLock(&mutex);
@@ -516,6 +538,107 @@ bool cUpdater::RemoveOtherUpdates(const std::string &Dir, const std::string &Kee
   return true;
 }
 
+// --- Local directories and SMB shares ----------------------------------------------
+
+static bool SourceLocation(const cServerEntry &Server, std::string &DirUrl, std::string &JsonUrl, cSmbUrl &Smb, std::string &Error)
+{
+  // DirUrl: URL of the directory (with trailing '/'), JsonUrl: URL of the
+  // JSON file if the server entry points to one directly
+  std::string url;
+  JsonUrl.clear();
+  if (Server.type == stDir) {
+     std::string path = LocalPath(Server.url);
+     if (path.empty()) {
+        Error = tr("Invalid path (must start with /)");
+        return false;
+        }
+     if (path.size() > 5 && path.compare(path.size() - 5, 5, ".json") == 0) {
+        JsonUrl = PathToFileUrl(path);
+        DirUrl = UrlDirectory(JsonUrl);
+        path = path.substr(0, path.rfind('/'));
+        }
+     else
+        DirUrl = PathToFileUrl(path) + "/";
+     std::string updateDir = LocalPath(PluginConfig.UpdateDir);
+     char *a = realpath(path.empty() ? "/" : path.c_str(), NULL);
+     char *b = realpath(updateDir.c_str(), NULL);
+     bool same = a && b && strcmp(a, b) == 0;
+     free(a);
+     free(b);
+     if (same) {
+        Error = tr("The update directory can't be used as source");
+        return false;
+        }
+     return true;
+     }
+  if (!ParseSmbUrl(Server.url, Smb)) {
+     Error = tr("Invalid SMB address (use smb://server/share/path)");
+     return false;
+     }
+  if (Smb.url.size() > 5 && Smb.url.compare(Smb.url.size() - 5, 5, ".json") == 0) {
+     JsonUrl = Smb.url;
+     DirUrl = UrlDirectory(JsonUrl);
+     }
+  else
+     DirUrl = Smb.url + "/";
+  return true;
+}
+
+static bool FetchFileSource(const cServerEntry &Server, const std::string &Arch, const std::string &Board, std::vector<cReleaseInfo> &Releases, std::string &Error, bool &FromJson)
+{
+  std::string dirUrl, jsonUrl;
+  cSmbUrl smb;
+  if (!SourceLocation(Server, dirUrl, jsonUrl, smb, Error))
+     return false;
+  cFileSource *src = NewFileSource(dirUrl, Server.type == stSmb ? &smb : NULL, Error);
+  if (!src)
+     return false;
+  bool ok = false;
+  std::vector<cLocalFile> files;
+  if (jsonUrl.empty()) {
+     if (src->List(dirUrl, files, Error)) {
+        ok = true;
+        for (size_t i = 0; i < files.size(); i++) {
+            if (files[i].name == "releases.json") {
+               jsonUrl = dirUrl + "releases.json";
+               break;
+               }
+            }
+        }
+     }
+  if (!jsonUrl.empty()) {
+     std::string data;
+     FromJson = true;
+     dsyslog_plg("reading %s", RedactUrl(jsonUrl).c_str());
+     ok = src->Read(jsonUrl, data, 32 * 1024 * 1024, Error) && ParseReleasesJson(data, jsonUrl, Arch, Server.channel, Board, Releases, Error, true);
+     }
+  else if (ok)
+     ok = ParseLocalDirectory(files, dirUrl, Arch, Server.filter, Server.name, Releases);
+  delete src;
+  return ok;
+}
+
+static cFileSource *SourceForRelease(const cReleaseInfo &Release, std::string &Error)
+{
+  if (Release.url.compare(0, 6, "smb://") != 0)
+     return NewFileSource(Release.url, NULL, Error);
+  // credentials come from the server entry, and only for that server/share
+  std::vector<cServerEntry> servers = ServerList.Get();
+  for (size_t i = 0; i < servers.size(); i++) {
+      cSmbUrl smb;
+      if (servers[i].type != stSmb || servers[i].name != Release.server || !ParseSmbUrl(servers[i].url, smb))
+         continue;
+      std::string share = smb.url.substr(0, smb.url.find('/', smb.url.find('/', 6) + 1)) + "/";
+      if (Release.url.compare(0, share.size(), share) != 0 || (!Release.sha256Url.empty() && Release.sha256Url.compare(0, share.size(), share) != 0)) {
+         Error = tr("Invalid URL");
+         return NULL;
+         }
+      return NewFileSource(Release.url, &smb, Error);
+      }
+  Error = tr("Server not found");
+  return NULL;
+}
+
 void cUpdater::FetchServer(const cServerEntry &Server, cServerResult &Result)
 {
   std::string arch, board;
@@ -533,6 +656,7 @@ void cUpdater::FetchServer(const cServerEntry &Server, cServerResult &Result)
      }
   std::string data, err;
   bool ok = false;
+  bool fromJson = Server.type == stJson;
   switch (Server.type) {
     case stJson: {
          std::string url = JsonUrl(Server.url);
@@ -557,45 +681,9 @@ void cUpdater::FetchServer(const cServerEntry &Server, cServerResult &Result)
             }
          }
          break;
-    case stDir: {
-         std::string dir = LocalPath(Server.url);
-         if (dir.empty()) {
-            err = tr("Invalid path (must start with /)");
-            break;
-            }
-         std::string updateDir = LocalPath(PluginConfig.UpdateDir);
-         char *a = realpath(dir.c_str(), NULL);
-         char *b = realpath(updateDir.c_str(), NULL);
-         bool same = a && b && strcmp(a, b) == 0;
-         free(a);
-         free(b);
-         if (same) {
-            err = tr("The update directory can't be used as source");
-            break;
-            }
-         DIR *d = opendir(dir.c_str());
-         if (!d) {
-            err = cString::sprintf("%s: %s", dir.c_str(), strerror(errno)).operator const char*();
-            break;
-            }
-         std::vector<cLocalFile> files;
-         struct dirent *e;
-         while ((e = readdir(d)) != NULL) {
-               if (e->d_name[0] == '.')
-                  continue;
-               struct stat st;
-               std::string path = dir + "/" + e->d_name;
-               if (stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
-                  cLocalFile f;
-                  f.name = e->d_name;
-                  f.size = st.st_size;
-                  f.mtime = st.st_mtime;
-                  files.push_back(f);
-                  }
-               }
-         closedir(d);
-         ok = ParseLocalDirectory(files, dir, arch, Server.filter, Server.name, Result.releases);
-         }
+    case stDir:
+    case stSmb:
+         ok = FetchFileSource(Server, arch, board, Result.releases, err, fromJson);
          break;
     case stIndex: {
          if (HttpGet(Server.url, data, err))
@@ -612,7 +700,7 @@ void cUpdater::FetchServer(const cServerEntry &Server, cServerResult &Result)
      return;
      }
   // the "filter" also applies to releases.json entries
-  if (Server.type == stJson && !Server.filter.empty()) {
+  if (fromJson && !Server.filter.empty()) {
      std::vector<cReleaseInfo> v;
      for (size_t i = 0; i < Result.releases.size(); i++)
          if (MatchesArch(Result.releases[i].name, arch, Server.filter))
@@ -713,14 +801,34 @@ bool cUpdater::DoInstall(const cReleaseInfo &Release)
      SetState(usError, cString::sprintf(tr("Can't create %s"), dir.c_str()).operator const char*());
      return false;
      }
+  cFileSource *src = NULL;
+  if (Release.local) {
+     std::string err;
+     src = SourceForRelease(Release, err);
+     if (!src) {
+        esyslog_plg("%s: %s", Release.name.c_str(), err.c_str());
+        SetState(usError, err);
+        return false;
+        }
+     }
+  bool ok = DoInstall(Release, src, finalName, part);
+  delete src;
+  return ok;
+}
+
+bool cUpdater::DoInstall(const cReleaseInfo &Release, cFileSource *Source, const std::string &FinalName, const std::string &Part)
+{
+  std::string dir = PluginConfig.UpdateDir;
+  const std::string &finalName = FinalName;
+  const std::string &part = Part;
   // checksum
   std::string sha = Release.sha256;
   if (sha.empty() && !Release.sha256Url.empty()) {
      std::string data, err;
-     if (HttpGet(Release.sha256Url, data, err, 64 * 1024))
+     if (Source ? Source->Read(Release.sha256Url, data, 1024 * 1024, err) : HttpGet(Release.sha256Url, data, err, 64 * 1024))
         sha = ParseSha256File(data, Release.name);
      else
-        esyslog_plg("can't get checksum from %s: %s", Release.sha256Url.c_str(), err.c_str());
+        esyslog_plg("can't get checksum from %s: %s", RedactUrl(Release.sha256Url).c_str(), err.c_str());
      }
   if (sha.empty()) {
      if (PluginConfig.RequireChecksum) {
@@ -748,11 +856,16 @@ bool cUpdater::DoInstall(const cReleaseInfo &Release)
   // download
   cDownloadProgress progress(this);
   std::string err;
-  if (Release.local)
-     isyslog_plg("installing %s from local directory", Release.name.c_str());
-  if (!HttpDownload(Release.url, part, &progress, err)) {
+  bool copied;
+  if (Source) {
+     isyslog_plg("copying %s to %s", RedactUrl(Release.url).c_str(), part.c_str());
+     copied = Source->Copy(Release.url, part, &progress, err);
+     }
+  else
+     copied = HttpDownload(Release.url, part, &progress, err);
+  if (!copied) {
      unlink(part.c_str());
-     esyslog_plg("download of %s failed: %s", Release.url.c_str(), err.c_str());
+     esyslog_plg("download of %s failed: %s", RedactUrl(Release.url).c_str(), err.c_str());
      SetState(abortDownload ? usIdle : usError, abortDownload ? std::string(tr("Download cancelled")) : err);
      if (abortDownload)
         FindPendingUpdate();
@@ -801,6 +914,7 @@ bool cUpdater::DoInstall(const cReleaseInfo &Release)
   {
     cMutexLock MutexLock(&mutex);
     pendingFile = finalName;
+    pendingRelease = Release;
     autoRebootBlocked = false;
     state = usReady;
     message = Release.name;

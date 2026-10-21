@@ -22,9 +22,11 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y vdr-dev libcurl4-openssl-dev gettext
-      - name: Build
-        run: make -j$(nproc)
+          sudo apt-get install -y vdr-dev libcurl4-openssl-dev libsmbclient-dev gettext
+      - name: Build (with SMB support)
+        run: |
+          make -j$(nproc)
+          nm -D libvdr-vdrsternelec.so | grep -q smbc_new_context
       - name: Install
         run: make install DESTDIR=$PWD/destdir
       - name: Check translations
@@ -52,5 +54,5 @@ jobs:
           cp Make.config.template Make.config
           echo "CXXFLAGS += -I$PWD/include" >> Make.config
           make include-dir vdr.pc
-      - name: Build plugin
-        run: make -C plugin VDRDIR=$PWD/vdr CXXFLAGS="-g -O2 -Wall -Wextra -Wno-unused-parameter -Wno-maybe-uninitialized -Werror -fPIC -I$PWD/vdr/include -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64"
+      - name: Build plugin (without SMB support)
+        run: make -C plugin SMB=0 VDRDIR=$PWD/vdr CXXFLAGS="-g -O2 -Wall -Wextra -Wno-unused-parameter -Wno-maybe-uninitialized -Werror -fPIC -I$PWD/vdr/include -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64"

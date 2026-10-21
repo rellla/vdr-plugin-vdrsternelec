@@ -55,9 +55,18 @@ DEFINES += -DPLUGIN_NAME_I18N='"$(PLUGIN)"' -DPLUGIN_VERSION='"$(VERSION)"'
 
 LIBS += $(shell $(PKG_CONFIG) --libs libcurl)
 
+### SMB support (libsmbclient), enabled if available. Use SMB=0 to disable.
+
+SMB ?= $(shell $(PKG_CONFIG) --exists smbclient && echo 1)
+ifeq ($(SMB),1)
+INCLUDES += $(shell $(PKG_CONFIG) --cflags smbclient)
+DEFINES  += -DWITH_SMB
+LIBS     += $(shell $(PKG_CONFIG) --libs smbclient)
+endif
+
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o config.o http.o json.o menu.o parsers.o sha256.o updater.o
+OBJS = $(PLUGIN).o config.o filesource.o http.o json.o menu.o parsers.o sha256.o updater.o
 
 ### The main target:
 

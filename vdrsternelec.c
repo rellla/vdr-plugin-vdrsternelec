@@ -25,7 +25,7 @@
 #error "VDR-2.4.0 API version or greater is required!"
 #endif
 
-static const char *VERSION        = "0.2.0";
+static const char *VERSION        = "0.3.0";
 static const char *DESCRIPTION    = trNOOP("Update VDR*ELEC from release servers");
 static const char *MAINMENUENTRY  = trNOOP("VDR*ELEC update");
 
@@ -215,12 +215,19 @@ cString cPluginVdrsternelec::SVDRPCommand(const char *Command, const char *Optio
      time_t last = Updater.LastCheck();
      std::string pending = Updater.PendingFile();
      std::string message = Updater.Message();
-     return cString::sprintf("Installed: %s\nArchitecture: %s\nState: %s\nMessage: %s\nPending: %s\nLast check: %s",
+     time_t t;
+     bool hasTime;
+     std::string built = InstalledBuildDate(info, t, hasTime) ? FormatBuildDate(t, hasTime) : "unknown";
+     cReleaseInfo p = Updater.PendingRelease();
+     std::string pendingBuilt = p.name.empty() ? "-" : ReleaseBuildDate(p, t, hasTime) ? FormatBuildDate(t, hasTime) : "unknown";
+     return cString::sprintf("Installed: %s\nBuild date: %s\nArchitecture: %s\nState: %s\nMessage: %s\nPending: %s\nPending build date: %s\nLast check: %s",
                              info.version.empty() ? "unknown" : info.version.c_str(),
+                             built.c_str(),
                              info.arch.empty() ? "unknown" : info.arch.c_str(),
                              Updater.StateText().c_str(),
                              message.empty() ? "-" : message.c_str(),
                              pending.empty() ? "-" : pending.c_str(),
+                             pendingBuilt.c_str(),
                              last ? *DayDateTime(last) : "never");
      }
   if (!strcasecmp(Command, "CHECK")) {
@@ -303,7 +310,9 @@ cString cPluginVdrsternelec::SVDRPCommand(const char *Command, const char *Optio
      for (size_t i = 0; i < servers.size(); i++) {
          if (i)
             out += "\n";
-         out += servers[i].ToLine();
+         cServerEntry e = servers[i];
+         e.url = RedactUrl(e.url); // don't show passwords
+         out += e.ToLine();
          }
      return out.c_str();
      }

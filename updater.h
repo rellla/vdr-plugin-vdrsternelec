@@ -40,6 +40,7 @@ private:
   cReleaseInfo installRelease;
   cReleaseInfo current;
   std::string pendingFile;
+  cReleaseInfo pendingRelease;
   long long dlNow;
   long long dlTotal;
   volatile bool abortDownload;
@@ -51,6 +52,7 @@ private:
   void FetchServer(const cServerEntry &Server, cServerResult &Result);
   void DoCheck(bool Automatic);
   bool DoInstall(const cReleaseInfo &Release);
+  bool DoInstall(const cReleaseInfo &Release, class cFileSource *Source, const std::string &FinalName, const std::string &Part);
   std::string Arch(void);
   void FindPendingUpdate(void);
   void LoadState(void);
@@ -86,6 +88,8 @@ public:
   ///< All releases of the last check (flattened, filtered by the settings).
   bool UpdatePending(void);
   std::string PendingFile(void);
+  cReleaseInfo PendingRelease(void);
+  ///< The downloaded update (name, label and build time, as far as known).
   bool DiscardPending(std::string &Error);
   bool Reboot(std::string &Error);
   bool AutoRebootAllowed(void);

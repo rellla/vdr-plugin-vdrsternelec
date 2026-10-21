@@ -38,6 +38,8 @@ Requirements
 
   - VDR >= 2.4.0
   - libcurl
+  - libsmbclient (optional, for Samba shares; built automatically if found,
+    "make SMB=0" disables it)
 
 
 Installation
@@ -76,11 +78,17 @@ One server per line:
            dir     A local directory or a mounted network share containing
                    the update files ("manual update"). url is the absolute
                    path, e.g. /storage/updates or /media/nas/vdrelec.
+           smb     A Samba (Windows) share, accessed directly without
+                   mounting. url is
+                   smb://[[domain;]user[:password]@]server/share[/path]
+                   Special characters in user or password must be
+                   percent-encoded (e.g. @ as %40).
   name     Name shown in the OSD.
   channel  json:   name of the channel to use (e.g. "LibreELEC-13.0").
            github: only tags containing this text are used
                    (e.g. "LibreELEC-13" or "CoreELEC-21").
-           Empty means all channels/tags. Not used for index and dir.
+           dir, smb: as json, if the directory contains a releases.json.
+           Empty means all channels/tags. Not used for index.
   filter   Optional regular expression (ECMAScript syntax). If given, it is
            used instead of the device string to select the update files.
   !        A leading '!' disables the entry.
@@ -91,6 +99,7 @@ Examples (see also servers.conf.example):
   json|My builds|https://builds.example.org/vdrelec/||
   index|NAS|http://192.168.1.10/vdrelec/||
   dir|USB stick|/var/media/USBSTICK/updates||
+  smb|NAS|smb://user:secret@192.168.1.10/vdr/updates||
 
 Checksums are taken from releases.json, from the "digest" GitHub provides for
 release assets, from a file <update file>.sha256 next to the update file, or
@@ -102,23 +111,49 @@ same directory, as created by
 Files without checksum are refused unless "Require checksum" is disabled.
 
 
-Local and network directories (manual update)
----------------------------------------------
+Local directories and Samba shares (manual update)
+--------------------------------------------------
 
-A "dir" server lists the update files of a directory, just like copying a
-file into /storage/.update manually, but with checksum verification and
-selection in the OSD. Only files directly in that directory are listed, and
-only files for this device (or matching the filter). The release date is the
-modification time of the file.
+A "dir" or "smb" server lists the update files of a directory, just like
+copying a file into /storage/.update manually, but with checksum verification
+and selection in the OSD. Only files directly in that directory are listed,
+and only files for this device (or matching the filter). The release date is
+the modification time of the file.
 
-Network shares must be mounted first, e.g. with a systemd mount unit in
-/storage/.config/system.d (see the LibreELEC wiki on mounting network
-shares), and the mount point is given as path:
+If the directory contains a releases.json (or the path points directly to a
+.json file), it is used instead of the file list, exactly like on a
+"json" server. This way a copy of a release server can be used from a USB
+stick or a share. The files are always taken relative to the directory of the
+JSON file ("url" entries in the JSON file are ignored), and paths leaving that
+directory ("..") are refused.
+
+Samba shares can be used directly with the "smb" type:
+
+  smb|NAS|smb://user:secret@nas/vdr/updates||
+  smb|NAS guest|smb://nas/public/vdrelec||
+
+Without user name, the share is accessed anonymously. The password is stored
+in servers.conf in plain text; the SVDRP command SERVERS shows it as "***",
+and it is only sent to the server of that entry.
+
+Other network shares (e.g. NFS) must be mounted first, e.g. with a systemd
+mount unit in /storage/.config/system.d (see the LibreELEC wiki on mounting
+network shares), and the mount point is used with the "dir" type:
 
   dir|NAS|/storage/nas/vdrelec||
 
 Removable media appear under /var/media/<label>. The update directory itself
 can't be used as source.
+
+
+Build date
+----------
+
+The OSD shows the build date of the installed system and of the update. For
+the installed system it is taken from the version (LibreELEC devel builds
+contain the build time, nightly builds the date) or from the time of
+/etc/os-release. For releases it is taken from the file name, the time given
+by the server (releases.json, GitHub, file time) or a date in the tag.
 
 Note: unauthenticated access to the GitHub API is limited to 60 requests per
 hour and IP address.
@@ -176,7 +211,7 @@ Setup options
 SVDRP commands
 --------------
 
-  STAT              Installed version and state of the updater.
+  STAT              Installed version, build dates and state of the updater.
   CHECK             Check all enabled servers (runs in the background).
   LIST [NEW]        Releases found by the last check (NEW: only newer ones).
   INSTALL <number>  Download and verify release <number> (see LIST).

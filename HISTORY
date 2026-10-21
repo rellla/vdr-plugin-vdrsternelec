@@ -1,6 +1,22 @@
 VDR Plugin 'vdrsternelec' Revision History
 -------------------------------------------
 
+2026-10-21: Version 0.3.0
+
+- New source type "smb": Samba shares, accessed directly with libsmbclient
+  (no mount needed). Credentials in the address:
+  smb://[[domain;]user[:password]@]server/share/path. Passwords are not
+  shown via SVDRP and are only sent to the server of that entry.
+  SMB support is built if libsmbclient is available (SMB=0 disables it).
+- Local directories and SMB shares use a releases.json if there is one in
+  the directory (or if the path points to a .json file). The update files
+  are always taken relative to the JSON file.
+- Show the build date of the installed system and of the update (OSD,
+  release info, SVDRP STAT). The build date of a downloaded update is kept
+  across restarts.
+- Read DISTRO_ARCH/PROJECT/DEVICE/BUILD from os-release (LibreELEC >= 12).
+- Copy files from local directories without libcurl.
+
 2026-10-21: Version 0.2.0
 
 - New source type "dir": a local or mounted network directory containing
