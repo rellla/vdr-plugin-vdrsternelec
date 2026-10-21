@@ -1,0 +1,810 @@
+/*
+ * vdrsternelec - A VDR plugin to update VDR*ELEC systems
+ *
+ * Copyright (C) 2026 Andreas Baierl <ichgeh@imkreisrum.de>
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * updater.c: Background thread checking for and downloading updates
+ */
+
+#include "updater.h"
+#include "common.h"
+#include "http.h"
+#include "json.h"
+#include "sha256.h"
+#include <dirent.h>
+#include <map>
+#include <errno.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <unistd.h>
+#include <vdr/i18n.h>
+#include <vdr/skins.h>
+
+#define FIRST_CHECK_DELAY   300  // seconds after startup
+#define CHECK_RETRY_DELAY  3600  // retry after a failed automatic check
+#define SPACE_MARGIN       (16LL * 1024 * 1024)
+
+cUpdater Updater;
+
+// --- cDownloadProgress ---------------------------------------------------------
+
+class cDownloadProgress : public cHttpProgress {
+private:
+  cUpdater *updater;
+public:
+  cDownloadProgress(cUpdater *Updater) : updater(Updater) {}
+  virtual bool Progress(long long Now, long long Total)
+  {
+    cMutexLock MutexLock(&updater->mutex);
+    updater->dlNow = Now;
+    if (Total > 0)
+       updater->dlTotal = Total;
+    return !updater->abortDownload && updater->Running();
+  }
+  };
+
+// --- Helpers -----------------------------------------------------------------
+
+static bool ReadFile(const char *FileName, std::string &Content)
+{
+  FILE *f = fopen(FileName, "r");
+  if (!f)
+     return false;
+  char buf[4096];
+  size_t n;
+  Content.clear();
+  while ((n = fread(buf, 1, sizeof(buf), f)) > 0 && Content.size() < 65536)
+        Content.append(buf, n);
+  fclose(f);
+  return true;
+}
+
+static bool IsSafeFileName(const std::string &Name)
+{
+  return !Name.empty() && Name[0] != '.' && Name.find('/') == std::string::npos && Name.find('\\') == std::string::npos;
+}
+
+// --- cUpdater ------------------------------------------------------------------
+
+cUpdater::cUpdater(void)
+:cThread("vdrsternelec updater")
+{
+  state = usIdle;
+  lastCheck = 0;
+  nextAutoCheck = 0;
+  checkRequested = false;
+  installRequested = false;
+  dlNow = 0;
+  dlTotal = -1;
+  abortDownload = false;
+  notifiedChanged = false;
+  autoRebootBlocked = false;
+}
+
+cUpdater::~cUpdater()
+{
+  Stop();
+}
+
+void cUpdater::Init(const char *OsRelease, const char *StateFile)
+{
+  stateFile = StateFile;
+  std::string content;
+  cSysInfo info;
+  if (ReadFile(OsRelease, content)) {
+     ParseOsRelease(content, info);
+     struct stat st;
+     if (stat(OsRelease, &st) == 0)
+        info.buildTime = st.st_mtime;
+     }
+  else
+     esyslog_plg("can't read %s", OsRelease);
+  {
+    cMutexLock MutexLock(&mutex);
+    sysInfo = info;
+    notifiedName = PluginConfig.LastNotified;
+    nextAutoCheck = time(NULL) + FIRST_CHECK_DELAY;
+  }
+  isyslog_plg("system: %s %s, arch %s%s%s", info.distName.c_str(), info.version.c_str(), info.arch.empty() ? "unknown" : info.arch.c_str(),
+              *PluginConfig.Arch ? ", using " : "", PluginConfig.Arch);
+  FindPendingUpdate();
+  LoadState();
+}
+
+// The state file records the update downloaded by the plugin together with
+// the system version at that time. After a reboot with a changed system
+// version we know which file is installed, which makes the comparison with
+// the releases on the servers reliable even if file names carry no version.
+
+static std::map<std::string, std::string> ReadState(const std::string &FileName)
+{
+  std::map<std::string, std::string> kv;
+  std::string content;
+  if (ReadFile(FileName.c_str(), content)) {
+     size_t pos = 0;
+     while (pos < content.size()) {
+           size_t nl = content.find('\n', pos);
+           std::string line = content.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+           pos = nl == std::string::npos ? content.size() : nl + 1;
+           size_t eq = line.find('=');
+           if (eq != std::string::npos)
+              kv[Trim(line.substr(0, eq))] = Trim(line.substr(eq + 1));
+           }
+     }
+  return kv;
+}
+
+static bool WriteState(const std::string &FileName, const std::map<std::string, std::string> &kv)
+{
+  std::string tmp = FileName + ".new";
+  FILE *f = fopen(tmp.c_str(), "w");
+  if (!f) {
+     esyslog_plg("can't write %s: %m", tmp.c_str());
+     return false;
+     }
+  for (std::map<std::string, std::string>::const_iterator it = kv.begin(); it != kv.end(); ++it)
+      fprintf(f, "%s=%s\n", it->first.c_str(), it->second.c_str());
+  bool ok = fclose(f) == 0 && rename(tmp.c_str(), FileName.c_str()) == 0;
+  if (!ok) {
+     esyslog_plg("can't write %s: %m", FileName.c_str());
+     unlink(tmp.c_str());
+     }
+  return ok;
+}
+
+void cUpdater::LoadState(void)
+{
+  if (stateFile.empty())
+     return;
+  std::map<std::string, std::string> kv = ReadState(stateFile);
+  if (kv["name"].empty())
+     return;
+  cMutexLock MutexLock(&mutex);
+  std::string pendingName = pendingFile.empty() ? "" : pendingFile.substr(pendingFile.rfind('/') + 1);
+  if (!pendingName.empty() && kv["rebootFor"] == pendingName) {
+     esyslog_plg("system was rebooted for %s, but the update is still there - not rebooting automatically again", pendingName.c_str());
+     autoRebootBlocked = true;
+     }
+  std::string version = sysInfo.version;
+  std::string build = std::string(*cString::sprintf("%lld", (long long)sysInfo.buildTime));
+  if (!kv["postVersion"].empty()) {
+     // already applied earlier: valid as long as the system did not change
+     if (kv["postVersion"] == version && kv["postBuild"] == build) {
+        sysInfo.installedName = kv["name"];
+        sysInfo.installedKey = kv["key"];
+        }
+     else {
+        isyslog_plg("system changed since %s was installed, forgetting it", kv["name"].c_str());
+        unlink(stateFile.c_str());
+        }
+     }
+  else if (!kv["preVersion"].empty()) {
+     bool pending = !pendingFile.empty() && pendingFile.substr(pendingFile.rfind('/') + 1) == kv["name"];
+     if (pending)
+        return; // not installed yet
+     if (kv["preVersion"] != version || kv["preBuild"] != build) {
+        isyslog_plg("update %s has been installed", kv["name"].c_str());
+        kv["postVersion"] = version;
+        kv["postBuild"] = build;
+        WriteState(stateFile, kv);
+        sysInfo.installedName = kv["name"];
+        sysInfo.installedKey = kv["key"];
+        }
+     else
+        unlink(stateFile.c_str()); // update file vanished without being installed
+     }
+  if (!sysInfo.installedName.empty())
+     isyslog_plg("installed update: %s", sysInfo.installedName.c_str());
+}
+
+void cUpdater::SaveState(const cReleaseInfo &Release)
+{
+  if (stateFile.empty())
+     return;
+  std::map<std::string, std::string> kv;
+  {
+    cMutexLock MutexLock(&mutex);
+    kv["name"] = Release.name;
+    kv["key"] = ReleaseKey(Release);
+    kv["preVersion"] = sysInfo.version;
+    kv["preBuild"] = std::string(*cString::sprintf("%lld", (long long)sysInfo.buildTime));
+  }
+  WriteState(stateFile, kv);
+}
+
+void cUpdater::Stop(void)
+{
+  if (Running()) {
+     abortDownload = true;
+     Cancel(-1);
+     {
+       cMutexLock MutexLock(&mutex);
+       condVar.Broadcast();
+     }
+     Cancel(10);
+     }
+}
+
+std::string cUpdater::Arch(void)
+{
+  // mutex must be locked by the caller
+  return *PluginConfig.Arch ? std::string(PluginConfig.Arch) : sysInfo.arch;
+}
+
+cSysInfo cUpdater::SysInfo(void)
+{
+  cMutexLock MutexLock(&mutex);
+  cSysInfo info = sysInfo;
+  if (*PluginConfig.Arch)
+     info.arch = PluginConfig.Arch;
+  return info;
+}
+
+void cUpdater::SetState(eState State, const std::string &Message)
+{
+  cMutexLock MutexLock(&mutex);
+  state = State;
+  message = Message;
+}
+
+void cUpdater::FindPendingUpdate(void)
+{
+  std::string dir = PluginConfig.UpdateDir;
+  DIR *d = opendir(dir.c_str());
+  if (!d)
+     return;
+  std::string found;
+  struct dirent *e;
+  while ((e = readdir(d)) != NULL) {
+        std::string name = e->d_name;
+        if (IsSafeFileName(name) && IsUpdateFile(name)) {
+           found = name;
+           break;
+           }
+        }
+  closedir(d);
+  if (!found.empty()) {
+     cMutexLock MutexLock(&mutex);
+     pendingFile = dir + "/" + found;
+     state = usReady;
+     message = found;
+     isyslog_plg("update %s is waiting to be installed", pendingFile.c_str());
+     }
+}
+
+void cUpdater::RequestCheck(void)
+{
+  cMutexLock MutexLock(&mutex);
+  checkRequested = true;
+  condVar.Broadcast();
+  if (!Running())
+     Start();
+}
+
+bool cUpdater::RequestInstall(const cReleaseInfo &Release, std::string &Error)
+{
+  cMutexLock MutexLock(&mutex);
+  if (state == usDownloading || state == usVerifying || installRequested) {
+     Error = tr("A download is already running");
+     return false;
+     }
+  if (!IsSafeFileName(Release.name) || !IsUpdateFile(Release.name)) {
+     Error = tr("Invalid file name");
+     return false;
+     }
+  installRelease = Release;
+  installRequested = true;
+  abortDownload = false;
+  condVar.Broadcast();
+  if (!Running())
+     Start();
+  return true;
+}
+
+void cUpdater::CancelDownload(void)
+{
+  cMutexLock MutexLock(&mutex);
+  installRequested = false;
+  abortDownload = true;
+}
+
+cUpdater::eState cUpdater::State(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return state;
+}
+
+std::string cUpdater::Message(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return message;
+}
+
+int cUpdater::ProgressPercent(void)
+{
+  cMutexLock MutexLock(&mutex);
+  if (state != usDownloading || dlTotal <= 0)
+     return -1;
+  return int(dlNow * 100 / dlTotal);
+}
+
+bool cUpdater::Busy(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return state == usChecking || state == usDownloading || state == usVerifying || checkRequested || installRequested;
+}
+
+std::string cUpdater::StateText(void)
+{
+  cMutexLock MutexLock(&mutex);
+  switch (state) {
+    case usIdle:     return tr("Idle");
+    case usChecking: return tr("Checking for updates...");
+    case usDownloading: {
+         if (dlTotal > 0)
+            return cString::sprintf(tr("Downloading %d%% (%s of %s)"), int(dlNow * 100 / dlTotal), FormatSize(dlNow).c_str(), FormatSize(dlTotal).c_str()).operator const char*();
+         return cString::sprintf(tr("Downloading (%s)"), FormatSize(dlNow).c_str()).operator const char*();
+         }
+    case usVerifying: return tr("Verifying checksum...");
+    case usReady:     return tr("Update ready - reboot to install");
+    case usError:     return tr("Error");
+    }
+  return "";
+}
+
+time_t cUpdater::LastCheck(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return lastCheck;
+}
+
+eCompareResult cUpdater::Compare(const cReleaseInfo &Release)
+{
+  cMutexLock MutexLock(&mutex);
+  return CompareWithInstalled(Release, sysInfo);
+}
+
+static bool Visible(const cReleaseInfo &r, eCompareResult c)
+{
+  if (r.prerelease && !PluginConfig.ShowPrerelease)
+     return false;
+  if (c == crOlder && !PluginConfig.ShowOlder)
+     return false;
+  return true;
+}
+
+std::vector<cServerResult> cUpdater::Results(void)
+{
+  cMutexLock MutexLock(&mutex);
+  std::vector<cServerResult> r = results;
+  for (size_t i = 0; i < r.size(); i++) {
+      std::vector<cReleaseInfo> v;
+      for (size_t j = 0; j < r[i].releases.size(); j++) {
+          if (Visible(r[i].releases[j], CompareWithInstalled(r[i].releases[j], sysInfo)))
+             v.push_back(r[i].releases[j]);
+          }
+      r[i].releases.swap(v);
+      }
+  return r;
+}
+
+std::vector<cReleaseInfo> cUpdater::Releases(void)
+{
+  std::vector<cServerResult> r = Results();
+  std::vector<cReleaseInfo> v;
+  for (size_t i = 0; i < r.size(); i++)
+      v.insert(v.end(), r[i].releases.begin(), r[i].releases.end());
+  return v;
+}
+
+bool cUpdater::UpdatePending(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return !pendingFile.empty() && state != usDownloading && state != usVerifying;
+}
+
+std::string cUpdater::PendingFile(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return pendingFile;
+}
+
+bool cUpdater::DiscardPending(std::string &Error)
+{
+  cMutexLock MutexLock(&mutex);
+  if (pendingFile.empty()) {
+     Error = tr("No update pending");
+     return false;
+     }
+  if (state == usDownloading || state == usVerifying) {
+     Error = tr("A download is already running");
+     return false;
+     }
+  if (unlink(pendingFile.c_str()) != 0 && errno != ENOENT) {
+     Error = cString::sprintf("%s: %s", pendingFile.c_str(), strerror(errno)).operator const char*();
+     return false;
+     }
+  unlink((pendingFile + ".sha256").c_str());
+  isyslog_plg("discarded pending update %s", pendingFile.c_str());
+  pendingFile.clear();
+  state = usIdle;
+  message.clear();
+  return true;
+}
+
+bool cUpdater::Reboot(std::string &Error)
+{
+  std::string pending = PendingFile();
+  if (pending.empty()) {
+     Error = tr("No update pending");
+     return false;
+     }
+  if (access(pending.c_str(), R_OK) != 0) {
+     Error = tr("Update file vanished");
+     cMutexLock MutexLock(&mutex);
+     pendingFile.clear();
+     state = usIdle;
+     return false;
+     }
+  isyslog_plg("rebooting to install %s (%s)", pending.c_str(), PluginConfig.RebootCommand);
+  if (!stateFile.empty()) {
+     std::map<std::string, std::string> kv = ReadState(stateFile);
+     kv["rebootFor"] = pending.substr(pending.rfind('/') + 1);
+     if (kv["name"].empty())
+        kv["name"] = kv["rebootFor"];
+     WriteState(stateFile, kv);
+     }
+  {
+    cMutexLock MutexLock(&mutex);
+    autoRebootBlocked = true; // one automatic attempt per update and boot
+  }
+  sync();
+  if (SystemExec(PluginConfig.RebootCommand, true) < 0) {
+     Error = tr("Reboot command failed");
+     return false;
+     }
+  return true;
+}
+
+bool cUpdater::AutoRebootAllowed(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return !autoRebootBlocked;
+}
+
+bool cUpdater::GetNotified(std::string &Name)
+{
+  cMutexLock MutexLock(&mutex);
+  if (!notifiedChanged)
+     return false;
+  notifiedChanged = false;
+  Name = notifiedName;
+  return true;
+}
+
+bool cUpdater::RemoveOtherUpdates(const std::string &Dir, const std::string &Keep)
+{
+  // LibreELEC only installs one update file, so make sure ours is the only one
+  DIR *d = opendir(Dir.c_str());
+  if (!d)
+     return false;
+  struct dirent *e;
+  std::vector<std::string> remove;
+  while ((e = readdir(d)) != NULL) {
+        std::string name = e->d_name;
+        if (name == Keep || name == Keep + ".part")
+           continue;
+        bool isPart = name.size() > 5 && name.compare(name.size() - 5, 5, ".part") == 0 && IsUpdateFile(name.substr(0, name.size() - 5));
+        bool isSum = name.size() > 7 && name.compare(name.size() - 7, 7, ".sha256") == 0 && IsUpdateFile(name.substr(0, name.size() - 7));
+        if (IsSafeFileName(name) && (IsUpdateFile(name) || isPart || isSum))
+           remove.push_back(name);
+        }
+  closedir(d);
+  for (size_t i = 0; i < remove.size(); i++) {
+      std::string path = Dir + "/" + remove[i];
+      isyslog_plg("removing old update file %s", path.c_str());
+      unlink(path.c_str());
+      }
+  return true;
+}
+
+void cUpdater::FetchServer(const cServerEntry &Server, cServerResult &Result)
+{
+  std::string arch, board;
+  {
+    cMutexLock MutexLock(&mutex);
+    arch = Arch();
+    board = PluginConfig.Board;
+  }
+  Result.server = Server;
+  Result.releases.clear();
+  Result.error.clear();
+  if (arch.empty() && Server.filter.empty()) {
+     Result.error = tr("Unknown architecture");
+     return;
+     }
+  std::string data, err;
+  bool ok = false;
+  switch (Server.type) {
+    case stJson: {
+         std::string url = JsonUrl(Server.url);
+         if (HttpGet(url, data, err))
+            ok = ParseReleasesJson(data, url, arch, Server.channel, board, Result.releases, err);
+         }
+         break;
+    case stGithub: {
+         std::string url = GithubApiUrl(Server.url);
+         if (url.empty()) {
+            err = tr("Invalid GitHub repository (use owner/repo)");
+            break;
+            }
+         if (HttpGet(url, data, err, 32 * 1024 * 1024, "application/vnd.github+json"))
+            ok = ParseGithubReleases(data, arch, Server.channel, Server.filter, Result.releases, err);
+         else if (!data.empty()) {
+            // e.g. {"message": "API rate limit exceeded for ..."}
+            cJsonValue v;
+            std::string jerr;
+            if (JsonParse(data, v, jerr) && !v.GetString("message").empty())
+               err += ": " + v.GetString("message");
+            }
+         }
+         break;
+    case stIndex: {
+         if (HttpGet(Server.url, data, err))
+            ok = ParseIndexHtml(data, Server.url, arch, Server.filter, Server.name, Result.releases);
+         }
+         break;
+    default:
+         err = "unknown server type";
+    }
+  if (!ok) {
+     Result.error = err;
+     Result.releases.clear();
+     esyslog_plg("server '%s': %s", Server.name.c_str(), err.c_str());
+     return;
+     }
+  // the "filter" also applies to releases.json entries
+  if (Server.type == stJson && !Server.filter.empty()) {
+     std::vector<cReleaseInfo> v;
+     for (size_t i = 0; i < Result.releases.size(); i++)
+         if (MatchesArch(Result.releases[i].name, arch, Server.filter))
+            v.push_back(Result.releases[i]);
+     Result.releases.swap(v);
+     }
+  for (size_t i = 0; i < Result.releases.size(); i++)
+      Result.releases[i].server = Server.name;
+  SortReleases(Result.releases);
+  isyslog_plg("server '%s': %zu release(s) for %s", Server.name.c_str(), Result.releases.size(), arch.c_str());
+}
+
+void cUpdater::DoCheck(bool Automatic)
+{
+  SetState(usChecking);
+  std::vector<cServerEntry> servers = ServerList.Get();
+  std::vector<cServerResult> res;
+  int errors = 0;
+  int enabled = 0;
+  for (size_t i = 0; i < servers.size() && Running(); i++) {
+      if (!servers[i].enabled)
+         continue;
+      enabled++;
+      cServerResult r;
+      FetchServer(servers[i], r);
+      if (!r.error.empty())
+         errors++;
+      res.push_back(r);
+      }
+  // find the newest release that is newer than the installed one
+  cReleaseInfo best;
+  bool found = false;
+  {
+    cMutexLock MutexLock(&mutex);
+    results = res;
+    lastCheck = time(NULL);
+    for (size_t i = 0; i < res.size(); i++) {
+        for (size_t j = 0; j < res[i].releases.size(); j++) {
+            const cReleaseInfo &r = res[i].releases[j];
+            if (r.prerelease && !PluginConfig.ShowPrerelease)
+               continue;
+            if (CompareWithInstalled(r, sysInfo) != crNewer)
+               continue;
+            if (!found || ReleaseKey(r) > ReleaseKey(best)) {
+               best = r;
+               found = true;
+               }
+            break; // releases are sorted newest first
+            }
+        }
+    if (!pendingFile.empty())
+       state = usReady, message = pendingFile.substr(pendingFile.rfind('/') + 1);
+    else if (enabled && errors == enabled)
+       state = usError, message = res.empty() ? "" : res[0].error;
+    else
+       state = usIdle, message.clear();
+  }
+  if (enabled == 0)
+     isyslog_plg("no servers enabled");
+  if (!found) {
+     dsyslog_plg("no newer release found");
+     return;
+     }
+  isyslog_plg("newer release available: %s (%s)", best.name.c_str(), best.server.c_str());
+  bool notify = false;
+  {
+    cMutexLock MutexLock(&mutex);
+    if (Automatic && notifiedName != best.name) {
+       notifiedName = best.name;
+       notifiedChanged = true;
+       notify = PluginConfig.Notify;
+       }
+  }
+  if (notify)
+     Skins.QueueMessage(mtInfo, cString::sprintf(tr("VDR*ELEC update available: %s"), best.label.c_str()));
+  if (Automatic && PluginConfig.AutoDownload) {
+     std::string pending = PendingFile();
+     if (pending.empty() || pending.substr(pending.rfind('/') + 1) != best.name)
+        DoInstall(best);
+     }
+}
+
+bool cUpdater::DoInstall(const cReleaseInfo &Release)
+{
+  std::string dir = PluginConfig.UpdateDir;
+  std::string finalName = dir + "/" + Release.name;
+  std::string part = finalName + ".part";
+  {
+    cMutexLock MutexLock(&mutex);
+    current = Release;
+    dlNow = 0;
+    dlTotal = Release.size;
+    abortDownload = false;
+    state = usDownloading;
+    message = Release.name;
+  }
+  if (!MakeDirs(dir.c_str(), true)) {
+     SetState(usError, cString::sprintf(tr("Can't create %s"), dir.c_str()).operator const char*());
+     return false;
+     }
+  // checksum
+  std::string sha = Release.sha256;
+  if (sha.empty() && !Release.sha256Url.empty()) {
+     std::string data, err;
+     if (HttpGet(Release.sha256Url, data, err, 64 * 1024))
+        sha = ParseSha256File(data, Release.name);
+     else
+        esyslog_plg("can't get checksum from %s: %s", Release.sha256Url.c_str(), err.c_str());
+     }
+  if (sha.empty()) {
+     if (PluginConfig.RequireChecksum) {
+        esyslog_plg("no checksum available for %s", Release.name.c_str());
+        SetState(usError, tr("No checksum available"));
+        return false;
+        }
+     isyslog_plg("no checksum available for %s, installing without verification", Release.name.c_str());
+     }
+  // free space
+  struct statvfs vfs;
+  if (Release.size > 0 && statvfs(dir.c_str(), &vfs) == 0) {
+     long long avail = (long long)vfs.f_bavail * vfs.f_frsize;
+     // a pending update in the same directory will be replaced, so count it as free
+     std::string pending = PendingFile();
+     struct stat st;
+     if (!pending.empty() && stat(pending.c_str(), &st) == 0)
+        avail += st.st_size;
+     if (avail < Release.size + SPACE_MARGIN) {
+        esyslog_plg("not enough space in %s: %lld available, %lld needed", dir.c_str(), avail, Release.size + SPACE_MARGIN);
+        SetState(usError, cString::sprintf(tr("Not enough space in %s"), dir.c_str()).operator const char*());
+        return false;
+        }
+     }
+  // download
+  cDownloadProgress progress(this);
+  std::string err;
+  if (!HttpDownload(Release.url, part, &progress, err)) {
+     unlink(part.c_str());
+     esyslog_plg("download of %s failed: %s", Release.url.c_str(), err.c_str());
+     SetState(abortDownload ? usIdle : usError, abortDownload ? std::string(tr("Download cancelled")) : err);
+     if (abortDownload)
+        FindPendingUpdate();
+     return false;
+     }
+  struct stat st;
+  if (stat(part.c_str(), &st) != 0 || (Release.size > 0 && st.st_size != Release.size)) {
+     unlink(part.c_str());
+     esyslog_plg("download of %s: size mismatch (%lld != %lld)", Release.name.c_str(), (long long)st.st_size, Release.size);
+     SetState(usError, tr("Size mismatch"));
+     return false;
+     }
+  if (!sha.empty()) {
+     SetState(usVerifying, Release.name);
+     std::string actual = Sha256File(part.c_str(), &abortDownload);
+     if (actual != sha) {
+        unlink(part.c_str());
+        if (abortDownload) {
+           SetState(usIdle, tr("Download cancelled"));
+           FindPendingUpdate();
+           return false;
+           }
+        esyslog_plg("checksum mismatch for %s: expected %s, got %s", Release.name.c_str(), sha.c_str(), actual.c_str());
+        SetState(usError, tr("Checksum mismatch"));
+        return false;
+        }
+     isyslog_plg("checksum of %s verified", Release.name.c_str());
+     }
+  RemoveOtherUpdates(dir, Release.name);
+  if (rename(part.c_str(), finalName.c_str()) != 0) {
+     esyslog_plg("can't rename %s: %m", part.c_str());
+     unlink(part.c_str());
+     SetState(usError, tr("Can't move update file"));
+     return false;
+     }
+  if (!sha.empty()) {
+     std::string sumFile = finalName + ".sha256";
+     FILE *f = fopen(sumFile.c_str(), "w");
+     if (f) {
+        fprintf(f, "%s  %s\n", sha.c_str(), Release.name.c_str());
+        fclose(f);
+        }
+     }
+  SaveState(Release);
+  sync();
+  {
+    cMutexLock MutexLock(&mutex);
+    pendingFile = finalName;
+    autoRebootBlocked = false;
+    state = usReady;
+    message = Release.name;
+  }
+  isyslog_plg("update %s downloaded to %s", Release.name.c_str(), finalName.c_str());
+  if (PluginConfig.RebootMode == rmIdle)
+     Skins.QueueMessage(mtInfo, tr("VDR*ELEC update downloaded - will be installed when idle"));
+  else
+     Skins.QueueMessage(mtInfo, tr("VDR*ELEC update downloaded - reboot to install"));
+  return true;
+}
+
+void cUpdater::Action(void)
+{
+  isyslog_plg("updater thread started");
+  while (Running()) {
+        bool check = false;
+        bool install = false;
+        bool automatic = false;
+        cReleaseInfo release;
+        {
+          cMutexLock MutexLock(&mutex);
+          if (!checkRequested && !installRequested) {
+             time_t now = time(NULL);
+             if (PluginConfig.CheckInterval > 0 && nextAutoCheck && now >= nextAutoCheck && state != usDownloading)
+                automatic = true;
+             else
+                condVar.TimedWait(mutex, 1000);
+             }
+          if (!Running())
+             break;
+          if (installRequested) {
+             installRequested = false;
+             install = true;
+             release = installRelease;
+             }
+          else if (checkRequested || automatic) {
+             checkRequested = false;
+             check = true;
+             }
+        }
+        if (install)
+           DoInstall(release);
+        else if (check) {
+           DoCheck(automatic);
+           cMutexLock MutexLock(&mutex);
+           if (PluginConfig.CheckInterval > 0) {
+              bool failed = state == usError;
+              nextAutoCheck = time(NULL) + (failed ? CHECK_RETRY_DELAY : PluginConfig.CheckInterval * 3600);
+              }
+           }
+        }
+  isyslog_plg("updater thread stopped");
+}

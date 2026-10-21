@@ -1,0 +1,11 @@
+VDR Plugin 'vdrsternelec' Revision History
+-------------------------------------------
+
+2026-10-21: Version 0.1.0
+
+- Initial revision.
+- Release sources: LibreELEC style releases.json, GitHub releases and plain
+  HTTP directory listings.
+- Download into /storage/.update with SHA-256 verification.
+- OSD menus, setup page and SVDRP commands.
+- Automatic check, notification, download and reboot when idle.

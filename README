@@ -1,0 +1,175 @@
+This is a "plugin" for the Video Disk Recorder (VDR).
+
+Written by:                  Andreas Baierl <ichgeh@imkreisrum.de>
+
+Project's homepage:          https://github.com/rellla/vdr-plugin-vdrsternelec
+
+Latest version available at: https://github.com/rellla/vdr-plugin-vdrsternelec
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+See the file COPYING for more information.
+
+
+Description
+-----------
+
+vdrsternelec updates a VDR*ELEC system (VDR on LibreELEC or CoreELEC) from
+within VDR, the same way the LibreELEC settings add-on does it in Kodi:
+
+  - it asks one or more release servers for the releases available for the
+    device it is running on,
+  - downloads the selected update file (.tar or .img.gz) into
+    /storage/.update and verifies its SHA-256 checksum,
+  - and reboots the system, which makes LibreELEC/CoreELEC install the update.
+
+Updates can be selected in the OSD, controlled via SVDRP, or checked for (and
+optionally downloaded and installed) automatically.
+
+The device is identified by <DEVICE>.<ARCH> (e.g. "RPi4.aarch64"), read from
+LIBREELEC_ARCH or COREELEC_ARCH in /etc/os-release. Only files whose name
+contains this string are offered.
+
+
+Requirements
+------------
+
+  - VDR >= 2.4.0
+  - libcurl
+
+
+Installation
+------------
+
+  make
+  make install
+
+Command line options:
+
+  -o FILE, --os-release=FILE  read the system information from FILE
+                              (default: /etc/os-release)
+
+
+Release servers
+---------------
+
+Servers are configured in the OSD ("VDR*ELEC update" -> "Release servers...")
+or in the file servers.conf in the plugin's configuration directory
+(usually /storage/.config/vdropt/plugins/vdrsternelec/servers.conf on
+VDR*ELEC). If the file does not exist, the official VDR*ELEC releases on
+GitHub (Zabrimus/VDRSternELEC) are used.
+
+One server per line:
+
+  [!]type|name|url|channel|filter
+
+  type     json    A LibreELEC style release server providing a
+                   releases.json (the format used by the LibreELEC settings
+                   add-on and the USB-SD creator). url is the base URL of
+                   the server or the full URL of the releases.json.
+           github  GitHub releases. url is "owner/repo" or the URL of the
+                   repository.
+           index   A plain HTTP directory listing (e.g. from nginx, Apache
+                   or "python3 -m http.server") containing the update files.
+  name     Name shown in the OSD.
+  channel  json:   name of the channel to use (e.g. "LibreELEC-13.0").
+           github: only tags containing this text are used
+                   (e.g. "LibreELEC-13" or "CoreELEC-21").
+           Empty means all channels/tags.
+  filter   Optional regular expression (ECMAScript syntax). If given, it is
+           used instead of the device string to select the update files.
+  !        A leading '!' disables the entry.
+
+Examples (see also servers.conf.example):
+
+  github|VDR*ELEC|Zabrimus/VDRSternELEC|LibreELEC-13|
+  json|My builds|https://builds.example.org/vdrelec/||
+  index|NAS|http://192.168.1.10/vdrelec/||
+
+Checksums are taken from releases.json, from the "digest" GitHub provides for
+release assets, or from a file <update file>.sha256 next to the update file.
+Files without checksum are refused unless "Require checksum" is disabled.
+
+Note: unauthenticated access to the GitHub API is limited to 60 requests per
+hour and IP address.
+
+
+Which release is newer?
+-----------------------
+
+Releases are compared with the installed system in this order:
+
+  1. If the plugin itself downloaded the installed update, it knows the file
+     and its date (stored in the file "state" in the plugin's configuration
+     directory).
+  2. Dates contained in the version (e.g. 13.0-nightly-20261020-abc1234).
+  3. Version numbers (e.g. 12.0.1 < 12.0.2).
+  4. The date of the release (build time, upload time or a date contained in
+     the GitHub tag) compared with the build time of the installed system
+     (modification time of /etc/os-release).
+
+Releases are marked with "*" (newer) and "=" (installed) in the OSD and in
+the SVDRP command LIST.
+
+
+Setup options
+-------------
+
+  Hide main menu entry        Hide the plugin's entry in VDR's main menu.
+  Check interval (h)          Check for new releases every n hours
+                              (0 = off). The first check is done 5 minutes
+                              after VDR has started.
+  Notify about new releases   Show an OSD message when the automatic check
+                              finds a new release (once per release).
+  Download new releases       Download a new release found by the automatic
+  automatically               check into the update directory.
+  Reboot to install           "manually": reboot via the OSD or SVDRP.
+                              "automatically when idle": reboot as soon as
+                              an update is waiting and VDR is idle (no
+                              recording, no timer within the next 15 minutes,
+                              no OSD open, no key pressed for the idle time,
+                              no plugin busy).
+  Idle time before reboot     See above.
+  Require checksum            Refuse update files without checksum.
+  Show older releases         Also list releases older than the installed
+                              one (downgrade).
+  Show pre-releases           Also list GitHub pre-releases.
+  Update directory            Where update files are stored
+                              (default: /storage/.update).
+  Reboot command              Command used to reboot (default: reboot).
+  U-Boot board                For u-boot based devices with board specific
+                              images in releases.json (e.g. "odroid-c2").
+                              Empty lists all boards.
+  Architecture                Overrides the device string from os-release.
+
+
+SVDRP commands
+--------------
+
+  STAT              Installed version and state of the updater.
+  CHECK             Check all enabled servers (runs in the background).
+  LIST [NEW]        Releases found by the last check (NEW: only newer ones).
+  INSTALL <number>  Download and verify release <number> (see LIST).
+  CANCEL            Cancel a running download.
+  DISCARD           Remove a downloaded, not yet installed update.
+  REBOOT            Reboot now to install a downloaded update.
+  SERVERS           List the configured servers.
+
+Example:
+
+  svdrpsend PLUG vdrsternelec CHECK
+  svdrpsend PLUG vdrsternelec LIST NEW
+  svdrpsend PLUG vdrsternelec INSTALL 1
+  svdrpsend PLUG vdrsternelec STAT
+  svdrpsend PLUG vdrsternelec REBOOT
+
+
+Notes
+-----
+
+  - Only one update file is kept in the update directory, other update files
+    found there are removed when a new update has been downloaded.
+  - While a download is running, VDR does not shut down automatically.
+  - A backup of /storage before updating is always a good idea.

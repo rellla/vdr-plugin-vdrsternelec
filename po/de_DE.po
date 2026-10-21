@@ -1,0 +1,354 @@
+# VDR plugin language source file.
+# Copyright (C) 2026 Andreas Baierl <ichgeh@imkreisrum.de>
+# This file is distributed under the same license as the vdr-vdrsternelec package.
+# Andreas Baierl <ichgeh@imkreisrum.de>, 2026
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: vdr-vdrsternelec 0.1.0\n"
+"Report-Msgid-Bugs-To: <see README>\n"
+"POT-Creation-Date: 2026-10-21 17:30+0200\n"
+"PO-Revision-Date: 2026-10-21 17:30+0200\n"
+"Last-Translator: Andreas Baierl <ichgeh@imkreisrum.de>\n"
+"Language-Team: German <vdr@linuxtv.org>\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Error"
+msgstr "Fehler"
+
+#, c-format
+msgid "releases: %d, newer: %d"
+msgstr "Versionen: %d, davon neuer: %d"
+
+#, c-format
+msgid "releases: %d"
+msgstr "Versionen: %d"
+
+msgid "VDR*ELEC update"
+msgstr "VDR*ELEC-Update"
+
+msgid "Button$Check"
+msgstr "Prüfen"
+
+msgid "Button$Servers"
+msgstr "Server"
+
+msgid "Installed"
+msgstr "Installiert"
+
+msgid "unknown"
+msgstr "unbekannt"
+
+msgid "Device"
+msgstr "Gerät"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "File"
+msgstr "Datei"
+
+msgid "Last check"
+msgstr "Letzte Prüfung"
+
+msgid "never"
+msgstr "nie"
+
+msgid "Check for updates"
+msgstr "Nach Updates suchen"
+
+msgid "Cancel download"
+msgstr "Download abbrechen"
+
+msgid "Reboot now and install update"
+msgstr "Jetzt neu starten und Update installieren"
+
+msgid "Discard downloaded update"
+msgstr "Heruntergeladenes Update verwerfen"
+
+msgid "Release servers..."
+msgstr "Release-Server..."
+
+msgid "Available releases"
+msgstr "Verfügbare Versionen"
+
+msgid "No servers enabled"
+msgstr "Keine Server aktiviert"
+
+msgid "Reboot now to install the update?"
+msgstr "Jetzt neu starten und Update installieren?"
+
+msgid "Recording - reboot anyway?"
+msgstr "Aufnahme läuft - trotzdem neu starten?"
+
+msgid "Rebooting..."
+msgstr "Starte neu..."
+
+msgid "Discard downloaded update?"
+msgstr "Heruntergeladenes Update verwerfen?"
+
+msgid "Cancel download?"
+msgstr "Download abbrechen?"
+
+msgid "pre-release"
+msgstr "Vorabversion"
+
+msgid "Button$Info"
+msgstr "Info"
+
+msgid "No releases found for this device"
+msgstr "Keine Versionen für dieses Gerät gefunden"
+
+#, c-format
+msgid "Downgrade to %s?"
+msgstr "Auf %s zurückgehen?"
+
+#, c-format
+msgid "Reinstall %s?"
+msgstr "%s erneut installieren?"
+
+#, c-format
+msgid "Download and install %s?"
+msgstr "%s herunterladen und installieren?"
+
+msgid "Download started"
+msgstr "Download gestartet"
+
+msgid "from .sha256 file"
+msgstr "aus .sha256-Datei"
+
+msgid "none"
+msgstr "keine"
+
+msgid "newer than installed"
+msgstr "neuer als installiert"
+
+msgid "installed"
+msgstr "installiert"
+
+msgid "older than installed"
+msgstr "älter als installiert"
+
+msgid "Version"
+msgstr "Version"
+
+msgid "Server"
+msgstr "Server"
+
+msgid "Channel"
+msgstr "Kanal"
+
+msgid "Date"
+msgstr "Datum"
+
+msgid "Size"
+msgstr "Größe"
+
+msgid "Pre-release"
+msgstr "Vorabversion"
+
+msgid "yes"
+msgstr "ja"
+
+msgid "no"
+msgstr "nein"
+
+msgid "Board"
+msgstr "Board"
+
+msgid "Checksum (SHA-256)"
+msgstr "Prüfsumme (SHA-256)"
+
+msgid "Release servers"
+msgstr "Release-Server"
+
+msgid "No servers - press red to add one"
+msgstr "Keine Server - Rot drücken zum Hinzufügen"
+
+msgid "Button$New"
+msgstr "Neu"
+
+msgid "Button$On/Off"
+msgstr "Ein/Aus"
+
+msgid "Button$Delete"
+msgstr "Löschen"
+
+msgid "Can't save server list"
+msgstr "Serverliste kann nicht gespeichert werden"
+
+msgid "Delete server?"
+msgstr "Server löschen?"
+
+msgid "New server"
+msgstr "Neuer Server"
+
+msgid "Edit server"
+msgstr "Server bearbeiten"
+
+msgid "releases.json"
+msgstr "releases.json"
+
+msgid "GitHub"
+msgstr "GitHub"
+
+msgid "Directory listing"
+msgstr "Verzeichnisliste"
+
+msgid "Type"
+msgstr "Typ"
+
+msgid "Enabled"
+msgstr "Aktiviert"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Repository"
+msgstr "Repository"
+
+msgid "URL"
+msgstr "URL"
+
+msgid "Tag contains"
+msgstr "Tag enthält"
+
+msgid "Filter (regex)"
+msgstr "Filter (Regex)"
+
+msgid "URL must not be empty"
+msgstr "URL darf nicht leer sein"
+
+msgid "Invalid GitHub repository (use owner/repo)"
+msgstr "Ungültiges GitHub-Repository (Besitzer/Repo angeben)"
+
+msgid "A server with this name already exists"
+msgstr "Ein Server mit diesem Namen existiert bereits"
+
+msgid "manually"
+msgstr "manuell"
+
+msgid "automatically when idle"
+msgstr "automatisch im Leerlauf"
+
+msgid "Hide main menu entry"
+msgstr "Hauptmenüeintrag verstecken"
+
+msgid "Check interval (h)"
+msgstr "Prüfintervall (h)"
+
+msgid "off"
+msgstr "aus"
+
+msgid "Notify about new releases"
+msgstr "Über neue Versionen informieren"
+
+msgid "Download new releases automatically"
+msgstr "Neue Versionen automatisch herunterladen"
+
+msgid "Reboot to install"
+msgstr "Neustart zur Installation"
+
+msgid "Idle time before reboot (min)"
+msgstr "Leerlaufzeit vor Neustart (min)"
+
+msgid "Require checksum"
+msgstr "Prüfsumme erforderlich"
+
+msgid "Show older releases"
+msgstr "Ältere Versionen anzeigen"
+
+msgid "Show pre-releases"
+msgstr "Vorabversionen anzeigen"
+
+msgid "Update directory"
+msgstr "Update-Verzeichnis"
+
+msgid "Reboot command"
+msgstr "Neustart-Befehl"
+
+msgid "U-Boot board"
+msgstr "U-Boot-Board"
+
+msgid "Architecture (empty = auto)"
+msgstr "Architektur (leer = automatisch)"
+
+msgid "A download is already running"
+msgstr "Es läuft bereits ein Download"
+
+msgid "Invalid file name"
+msgstr "Ungültiger Dateiname"
+
+msgid "Idle"
+msgstr "Bereit"
+
+msgid "Checking for updates..."
+msgstr "Suche nach Updates..."
+
+#, c-format
+msgid "Downloading %d%% (%s of %s)"
+msgstr "Lade herunter %d%% (%s von %s)"
+
+#, c-format
+msgid "Downloading (%s)"
+msgstr "Lade herunter (%s)"
+
+msgid "Verifying checksum..."
+msgstr "Prüfe Prüfsumme..."
+
+msgid "Update ready - reboot to install"
+msgstr "Update bereit - Neustart zur Installation"
+
+msgid "No update pending"
+msgstr "Kein Update vorhanden"
+
+msgid "Update file vanished"
+msgstr "Update-Datei ist verschwunden"
+
+msgid "Reboot command failed"
+msgstr "Neustart-Befehl fehlgeschlagen"
+
+msgid "Unknown architecture"
+msgstr "Unbekannte Architektur"
+
+#, c-format
+msgid "VDR*ELEC update available: %s"
+msgstr "VDR*ELEC-Update verfügbar: %s"
+
+#, c-format
+msgid "Can't create %s"
+msgstr "%s kann nicht angelegt werden"
+
+msgid "No checksum available"
+msgstr "Keine Prüfsumme verfügbar"
+
+#, c-format
+msgid "Not enough space in %s"
+msgstr "Nicht genug Platz in %s"
+
+msgid "Download cancelled"
+msgstr "Download abgebrochen"
+
+msgid "Size mismatch"
+msgstr "Größe stimmt nicht"
+
+msgid "Checksum mismatch"
+msgstr "Prüfsumme stimmt nicht"
+
+msgid "Can't move update file"
+msgstr "Update-Datei kann nicht verschoben werden"
+
+msgid "VDR*ELEC update downloaded - will be installed when idle"
+msgstr "VDR*ELEC-Update heruntergeladen - wird im Leerlauf installiert"
+
+msgid "VDR*ELEC update downloaded - reboot to install"
+msgstr "VDR*ELEC-Update heruntergeladen - Neustart zur Installation"
+
+msgid "Update VDR*ELEC from release servers"
+msgstr "VDR*ELEC von Release-Servern aktualisieren"
+
+msgid "VDR*ELEC update download is running"
+msgstr "VDR*ELEC-Update wird heruntergeladen"

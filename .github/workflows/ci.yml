@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+
+jobs:
+  tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run unit tests
+        run: make -C tests test
+
+  build-distro:
+    name: Build (distribution VDR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y vdr-dev libcurl4-openssl-dev gettext
+      - name: Build
+        run: make -j$(nproc)
+      - name: Install
+        run: make install DESTDIR=$PWD/destdir
+      - name: Check translations
+        run: |
+          for po in po/*.po; do
+            msgfmt -c --statistics -o /dev/null "$po"
+          done
+
+  build-vdr-git:
+    name: Build (VDR from source)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libfreetype-dev libfontconfig-dev libjpeg-dev libcap-dev gettext
+      - name: Get VDR
+        run: git clone --depth 1 https://github.com/vdr-projects/vdr.git vdr
+      - name: Prepare VDR
+        run: |
+          cd vdr
+          cp Make.config.template Make.config
+          echo "CXXFLAGS += -I$PWD/include" >> Make.config
+          make include-dir vdr.pc
+      - name: Build plugin
+        run: make -C plugin VDRDIR=$PWD/vdr CXXFLAGS="-g -O2 -Wall -Wextra -Wno-unused-parameter -Wno-maybe-uninitialized -Werror -fPIC -I$PWD/vdr/include -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64"

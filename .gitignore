@@ -1,0 +1,7 @@
+*.o
+*.so
+*.mo
+*.pot
+*.tgz
+.dependencies
+tests/test_parsers

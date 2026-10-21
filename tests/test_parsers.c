@@ -1,0 +1,396 @@
+/*
+ * vdrsternelec - A VDR plugin to update VDR*ELEC systems
+ *
+ * Copyright (C) 2026 Andreas Baierl <ichgeh@imkreisrum.de>
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * test_parsers.c: Unit tests for the VDR independent parts
+ */
+
+#include "../json.h"
+#include "../parsers.h"
+#include "../sha256.h"
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+
+static int failures = 0;
+static int checks = 0;
+
+#define CHECK(cond) do { checks++; if (!(cond)) { failures++; fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #cond); } } while (0)
+#define CHECK_EQ(a, b) do { checks++; std::string _a = (a), _b = (b); if (_a != _b) { failures++; fprintf(stderr, "%s:%d: expected \"%s\", got \"%s\"\n", __FILE__, __LINE__, _b.c_str(), _a.c_str()); } } while (0)
+
+static void TestJson(void)
+{
+  cJsonValue v;
+  std::string err;
+  CHECK(JsonParse("{\"a\": [1, 2.5, true, null, \"x\\u00e4\\n\"], \"b\": {\"c\": \"d\"}}", v, err));
+  CHECK(v.IsObject());
+  CHECK(v.Get("a") && v.Get("a")->Array().size() == 5);
+  CHECK_EQ(v.Get("a")->Array()[0].AsString(), "1");
+  CHECK_EQ(v.Get("a")->Array()[1].AsString(), "2.5");
+  CHECK_EQ(v.Get("a")->Array()[4].String(), "x\xc3\xa4\n");
+  CHECK_EQ(v.Get("b")->GetString("c"), "d");
+  CHECK(!JsonParse("{\"a\": }", v, err));
+  CHECK(!err.empty());
+  CHECK(!JsonParse("[1, 2", v, err));
+  CHECK(!JsonParse("{} x", v, err));
+  CHECK(JsonParse("\"\\ud83d\\ude00\"", v, err));
+  CHECK_EQ(v.String(), "\xf0\x9f\x98\x80");
+}
+
+static void TestSha256(void)
+{
+  cSha256 s;
+  CHECK_EQ(s.HexDigest(), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  s.Reset();
+  s.Update("abc", 3);
+  CHECK_EQ(s.HexDigest(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  s.Reset();
+  const char *t = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+  // feed in odd chunks to exercise buffering
+  s.Update(t, 5);
+  s.Update(t + 5, strlen(t) - 5);
+  CHECK_EQ(s.HexDigest(), "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+  s.Reset();
+  std::string million(1000000, 'a');
+  s.Update(million.data(), million.size());
+  CHECK_EQ(s.HexDigest(), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+}
+
+static void TestOsRelease(void)
+{
+  const char *osr =
+    "NAME=\"LibreELEC\"\n"
+    "VERSION=\"13.0-devel-20261020103000-abc1234\"\n"
+    "ID=\"libreelec\"\n"
+    "VERSION_ID=\"13.0\"\n"
+    "# comment\n"
+    "LIBREELEC_ARCH=\"RPi4.aarch64\"\n"
+    "LIBREELEC_BUILD=\"devel\"\n"
+    "LIBREELEC_PROJECT=\"RPi\"\n"
+    "LIBREELEC_DEVICE=\"RPi4\"\n";
+  cSysInfo info;
+  CHECK(ParseOsRelease(osr, info));
+  CHECK_EQ(info.distName, "LibreELEC");
+  CHECK_EQ(info.version, "13.0-devel-20261020103000-abc1234");
+  CHECK_EQ(info.versionId, "13.0");
+  CHECK_EQ(info.arch, "RPi4.aarch64");
+  CHECK_EQ(info.project, "RPi");
+  CHECK_EQ(info.device, "RPi4");
+  CHECK_EQ(info.build, "devel");
+  cSysInfo ce;
+  CHECK(ParseOsRelease("NAME=CoreELEC\nCOREELEC_ARCH='Amlogic-ng.arm'\n", ce));
+  CHECK_EQ(ce.arch, "Amlogic-ng.arm");
+  cSysInfo none;
+  CHECK(!ParseOsRelease("NAME=Ubuntu\n", none));
+}
+
+static const char *ReleasesJson =
+  "{\n"
+  " \"LibreELEC-12.0\": {\n"
+  "  \"canary\": 21,\n"
+  "  \"prettyname_regex\": \"^LibreELEC-.*-([0-9]+\\\\.[0-9]+\\\\.[0-9]+)\",\n"
+  "  \"project\": {\n"
+  "   \"RPi4.aarch64\": {\n"
+  "    \"displayName\": \"Raspberry Pi 4\",\n"
+  "    \"releases\": {\n"
+  "     \"0\": {\"file\": {\"name\": \"LibreELEC-RPi4.aarch64-12.0.0.tar\", \"sha256\": \"" "0000000000000000000000000000000000000000000000000000000000000000" "\", \"size\": \"150000000\", \"subpath\": \"12.0/RPi\", \"timestamp\": \"2024-04-10 12:00:00\"},\n"
+  "            \"image\": {\"name\": \"LibreELEC-RPi4.aarch64-12.0.0.img.gz\", \"sha256\": \"x\", \"size\": \"1\", \"subpath\": \"12.0/RPi\", \"timestamp\": \"2024-04-10 12:00:00\"}},\n"
+  "     \"1\": {\"file\": {\"name\": \"LibreELEC-RPi4.aarch64-12.0.1.tar\", \"sha256\": \"" "1111111111111111111111111111111111111111111111111111111111111111" "\", \"size\": 150000001, \"subpath\": \"12.0/RPi\", \"timestamp\": \"2024-06-01 08:30:00\"}}\n"
+  "    }\n"
+  "   },\n"
+  "   \"Generic.x86_64\": {\"releases\": {\"0\": {\"file\": {\"name\": \"LibreELEC-Generic.x86_64-12.0.0.tar\"}}}}\n"
+  "  }\n"
+  " },\n"
+  " \"LibreELEC-12.2\": {\n"
+  "  \"url\": \"https://test.example.org/\",\n"
+  "  \"project\": {\n"
+  "   \"RPi4.aarch64\": {\"releases\": {\"0\": {\"image\": {\"name\": \"LibreELEC-RPi4.aarch64-12.2-nightly-20251005-7adb5c2.img.gz\", \"sha256\": \"" "2222222222222222222222222222222222222222222222222222222222222222" "\", \"size\": \"200\", \"subpath\": \"12.2/RPi/RPi4\", \"timestamp\": \"2025-10-05 08:50:14\"}}}},\n"
+  "   \"A64.aarch64\": {\"releases\": {\"0\": {\"uboot\": [\n"
+  "      {\"name\": \"LibreELEC-A64.aarch64-12.2-nightly-20250905-cc764b5-orangepi-win.img.gz\", \"subpath\": \"12.2/Allwinner/orangepi-win\", \"sha256\": \"" "3333333333333333333333333333333333333333333333333333333333333333" "\"},\n"
+  "      {\"name\": \"LibreELEC-A64.aarch64-12.2-nightly-20250905-cc764b5-pine64.img.gz\", \"subpath\": \"12.2/Allwinner/pine64\"}]}}}\n"
+  "  }\n"
+  " }\n"
+  "}\n";
+
+static void TestReleasesJson(void)
+{
+  std::vector<cReleaseInfo> r;
+  std::string err;
+  CHECK(ParseReleasesJson(ReleasesJson, "https://releases.example.org", "RPi4.aarch64", "", "", r, err));
+  CHECK(r.size() == 3);
+  if (r.size() == 3) {
+     CHECK_EQ(r[0].channel, "LibreELEC-12.0");
+     CHECK_EQ(r[0].name, "LibreELEC-RPi4.aarch64-12.0.0.tar"); // tar preferred over image
+     CHECK_EQ(r[0].url, "https://releases.example.org/12.0/RPi/LibreELEC-RPi4.aarch64-12.0.0.tar");
+     CHECK_EQ(r[0].label, "12.0.0");
+     CHECK(r[0].size == 150000000);
+     CHECK(r[1].size == 150000001);
+     CHECK_EQ(r[1].sha256, "1111111111111111111111111111111111111111111111111111111111111111");
+     CHECK_EQ(r[2].url, "https://test.example.org/12.2/RPi/RPi4/LibreELEC-RPi4.aarch64-12.2-nightly-20251005-7adb5c2.img.gz");
+     CHECK_EQ(r[2].label, "12.2-nightly-20251005-7adb5c2");
+     CHECK(r[2].timestamp == ParseTimestamp("2025-10-05 08:50:14"));
+     }
+  // channel filter
+  r.clear();
+  CHECK(ParseReleasesJson(ReleasesJson, "https://releases.example.org/releases.json", "RPi4.aarch64", "LibreELEC-12.2", "", r, err));
+  CHECK(r.size() == 1);
+  r.clear();
+  CHECK(!ParseReleasesJson(ReleasesJson, "https://releases.example.org/", "RPi4.aarch64", "nope", "", r, err));
+  // u-boot
+  r.clear();
+  CHECK(ParseReleasesJson(ReleasesJson, "https://releases.example.org/", "A64.aarch64", "", "", r, err));
+  CHECK(r.size() == 2);
+  if (r.size() == 2) {
+     CHECK_EQ(r[0].board, "orangepi-win");
+     CHECK_EQ(r[0].label, "12.2-nightly-20250905-cc764b5-orangepi-win (orangepi-win)");
+     }
+  r.clear();
+  CHECK(ParseReleasesJson(ReleasesJson, "https://releases.example.org/", "A64.aarch64", "", "pine64", r, err));
+  CHECK(r.size() == 1 && r[0].board == "pine64");
+  // unknown arch -> empty but ok
+  r.clear();
+  CHECK(ParseReleasesJson(ReleasesJson, "https://releases.example.org/", "RK3399.arm", "", "", r, err));
+  CHECK(r.empty());
+  CHECK(!ParseReleasesJson("[]", "x", "RPi4.aarch64", "", "", r, err));
+}
+
+static void TestGithub(void)
+{
+  const char *json =
+    "[{\"tag_name\": \"nightly\", \"draft\": false, \"prerelease\": true, \"published_at\": \"2026-10-20T10:00:00Z\",\n"
+    "  \"assets\": [\n"
+    "   {\"name\": \"LibreELEC-RPi4.aarch64-13.0-devel-20261020103000-abc1234.tar\", \"size\": 123, \"updated_at\": \"2026-10-20T11:00:00Z\",\n"
+    "    \"browser_download_url\": \"https://github.com/o/r/releases/download/nightly/LibreELEC-RPi4.aarch64-13.0-devel-20261020103000-abc1234.tar\",\n"
+    "    \"digest\": \"sha256:ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD\"},\n"
+    "   {\"name\": \"LibreELEC-RPi4.aarch64-13.0-devel-20261020103000-abc1234.img.gz\", \"size\": 456,\n"
+    "    \"browser_download_url\": \"https://github.com/o/r/releases/download/nightly/LibreELEC-RPi4.aarch64-13.0-devel-20261020103000-abc1234.img.gz\"},\n"
+    "   {\"name\": \"LibreELEC-RPi4.aarch64-13.0-devel-20261020103000-abc1234.img.gz.sha256\", \"browser_download_url\": \"https://x/sum\"},\n"
+    "   {\"name\": \"LibreELEC-RPi5.aarch64-13.0-devel-20261020103000-abc1234.tar\", \"browser_download_url\": \"https://x/rpi5\"}\n"
+    "  ]},\n"
+    " {\"tag_name\": \"draft1\", \"draft\": true, \"assets\": [{\"name\": \"LibreELEC-RPi4.aarch64-x.tar\", \"browser_download_url\": \"u\"}]}]\n";
+  std::vector<cReleaseInfo> r;
+  std::string err;
+  CHECK(ParseGithubReleases(json, "RPi4.aarch64", "", "", r, err));
+  CHECK(r.size() == 2);
+  if (r.size() == 2) {
+     CHECK_EQ(r[0].channel, "nightly");
+     CHECK(r[0].prerelease);
+     CHECK_EQ(r[0].sha256, "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd");
+     CHECK(r[0].timestamp == ParseTimestamp("2026-10-20T11:00:00Z"));
+     CHECK_EQ(r[0].label, "13.0-devel-20261020103000-abc1234");
+     CHECK(r[1].sha256.empty());
+     CHECK_EQ(r[1].sha256Url, "https://x/sum");
+     CHECK(r[1].timestamp == ParseTimestamp("2026-10-20T10:00:00Z"));
+     }
+  r.clear();
+  CHECK(ParseGithubReleases(json, "RPi4.aarch64", "other", "", r, err));
+  CHECK(r.empty());
+  r.clear();
+  CHECK(ParseGithubReleases(json, "", "", "RPi5", r, err));
+  CHECK(r.size() == 1);
+  CHECK(!ParseGithubReleases("{\"message\": \"API rate limit exceeded\"}", "RPi4.aarch64", "", "", r, err));
+  CHECK_EQ(err, "GitHub: API rate limit exceeded");
+  CHECK_EQ(GithubApiUrl("Zabrimus/VDRSternELEC"), "https://api.github.com/repos/Zabrimus/VDRSternELEC/releases?per_page=50");
+  CHECK_EQ(GithubApiUrl("https://github.com/Zabrimus/VDRSternELEC.git"), "https://api.github.com/repos/Zabrimus/VDRSternELEC/releases?per_page=50");
+  CHECK_EQ(GithubApiUrl("https://github.com/Zabrimus/VDRSternELEC/releases"), "https://api.github.com/repos/Zabrimus/VDRSternELEC/releases?per_page=50");
+  CHECK_EQ(GithubApiUrl("nonsense"), "");
+  CHECK_EQ(GithubApiUrl("a b/c"), "");
+}
+
+static void TestGithubVdrSternElec(void)
+{
+  // naming as used by Zabrimus/VDRSternELEC: one tag per date and distribution
+  const char *json =
+    "[{\"tag_name\": \"2026-07-24.1-CoreELEC-20-Release\", \"published_at\": \"2026-07-24T17:01:00Z\", \"assets\": [\n"
+    "   {\"name\": \"CE-Amlogic-ne-Amlogic-ne.aarch64-addon.cefbrowser-20.5.1.zip\", \"browser_download_url\": \"u1\"},\n"
+    "   {\"name\": \"CE-Amlogic-ne-Amlogic-ne.aarch64-channellogos-20.5.1.tar.gz\", \"browser_download_url\": \"u2\"},\n"
+    "   {\"name\": \"CE-Amlogic-ne.aarch64-20.5-VDR-0724.tar\", \"size\": 322000000, \"browser_download_url\": \"u3\", \"digest\": \"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\n"
+    "   {\"name\": \"CE-Amlogic-ne.aarch64-20.5-VDR-0724.tar.sha256\", \"browser_download_url\": \"u4\"},\n"
+    "   {\"name\": \"CE-Amlogic-ng.arm-20.5-VDR-0724.tar\", \"browser_download_url\": \"u5\"}]},\n"
+    " {\"tag_name\": \"2026-07-10.1-CoreELEC-20-Release\", \"assets\": [\n"
+    "   {\"name\": \"CE-Amlogic-ne.aarch64-20.5-VDR-0710.tar\", \"browser_download_url\": \"u6\"}]},\n"
+    " {\"tag_name\": \"2026-07-24.1-LibreELEC-13-Release\", \"assets\": [\n"
+    "   {\"name\": \"LE-RPi4.aarch64-13.0-VDR-0724.tar\", \"browser_download_url\": \"u7\"}]}]\n";
+  std::vector<cReleaseInfo> r;
+  std::string err;
+  CHECK(ParseGithubReleases(json, "Amlogic-ne.aarch64", "CoreELEC-20", "", r, err));
+  CHECK(r.size() == 2);
+  if (r.size() == 2) {
+     CHECK_EQ(r[0].name, "CE-Amlogic-ne.aarch64-20.5-VDR-0724.tar");
+     CHECK_EQ(r[0].label, "20.5-VDR-0724");
+     CHECK_EQ(r[0].url, "u3");
+     CHECK_EQ(ReleaseKey(r[0]), "20260724170100");
+     CHECK_EQ(ReleaseKey(r[1]), "20260710000000"); // from the tag
+     }
+  r.clear();
+  CHECK(ParseGithubReleases(json, "RPi4.aarch64", "LibreELEC-13", "", r, err));
+  CHECK(r.size() == 1);
+  r.clear();
+  CHECK(ParseGithubReleases(json, "RPi4.aarch64", "LibreELEC-12", "", r, err));
+  CHECK(r.empty());
+  // comparison by build time of the installed system
+  cSysInfo sys;
+  sys.version = "20.5";
+  sys.buildTime = ParseTimestamp("2026-07-12 10:00:00");
+  cReleaseInfo a;
+  a.name = "CE-Amlogic-ne.aarch64-20.5-VDR-0724.tar";
+  a.label = "20.5-VDR-0724";
+  a.channel = "2026-07-24.1-CoreELEC-20-Release";
+  CHECK(CompareWithInstalled(a, sys) == crNewer);
+  a.channel = "2026-07-12.1-CoreELEC-20-Release";
+  CHECK(CompareWithInstalled(a, sys) == crUnknown);
+  a.channel = "2026-07-01.1-CoreELEC-20-Release";
+  CHECK(CompareWithInstalled(a, sys) == crOlder);
+  // the plugin knows what it installed
+  sys.installedName = "CE-Amlogic-ne.aarch64-20.5-VDR-0710.tar";
+  sys.installedKey = "20260710000000";
+  a.channel = "2026-07-24.1-CoreELEC-20-Release";
+  CHECK(CompareWithInstalled(a, sys) == crNewer);
+  a.name = sys.installedName;
+  CHECK(CompareWithInstalled(a, sys) == crSame);
+}
+
+static void TestIndex(void)
+{
+  const char *html =
+    "<html><body><a href=\"../\">../</a>\n"
+    "<a href=\"LibreELEC-RPi4.aarch64-13.0.0.tar\">x</a>\n"
+    "<a href=\"LibreELEC-RPi4.aarch64-13.0.0.tar.sha256\">x</a>\n"
+    "<a href='sub/LibreELEC-RPi4.aarch64-13.0.1.img.gz'>y</a>\n"
+    "<a href=\"/abs/LibreELEC-RPi4.aarch64-12.9.9.img.gz?x=1\">z</a>\n"
+    "<a href=\"LibreELEC-RPi5.aarch64-13.0.0.tar\">other arch</a>\n"
+    "<a href=\"LibreELEC-RPi4.aarch64-13.0.0.tar\">duplicate</a>\n"
+    "</body></html>";
+  std::vector<cReleaseInfo> r;
+  CHECK(ParseIndexHtml(html, "http://host:8080/vdr", "RPi4.aarch64", "", "Local", r));
+  CHECK(r.size() == 3);
+  if (r.size() == 3) {
+     CHECK_EQ(r[0].url, "http://host:8080/vdr/LibreELEC-RPi4.aarch64-13.0.0.tar");
+     CHECK_EQ(r[0].sha256Url, "http://host:8080/vdr/LibreELEC-RPi4.aarch64-13.0.0.tar.sha256");
+     CHECK_EQ(r[0].channel, "Local");
+     CHECK_EQ(r[1].url, "http://host:8080/vdr/sub/LibreELEC-RPi4.aarch64-13.0.1.img.gz");
+     CHECK(r[1].sha256Url.empty());
+     CHECK_EQ(r[2].url, "http://host:8080/abs/LibreELEC-RPi4.aarch64-12.9.9.img.gz");
+     }
+}
+
+static void TestHelpers(void)
+{
+  CHECK_EQ(ParseSha256File("0123456789abcdef0123456789abcdef0123456789ABCDEF0123456789abcdef  LibreELEC.tar\n", "LibreELEC.tar"), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+  CHECK_EQ(ParseSha256File("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  a.tar\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *dir/b.tar\n", "b.tar"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+  CHECK_EQ(ParseSha256File("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n", "x"), "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
+  CHECK_EQ(ParseSha256File("<html>404</html>", "x"), "");
+  CHECK(IsUpdateFile("a.tar"));
+  CHECK(IsUpdateFile("a.img.gz"));
+  CHECK(!IsUpdateFile("a.tar.sha256"));
+  CHECK(!IsUpdateFile("a.img"));
+  CHECK(MatchesArch("LibreELEC-RPi4.aarch64-13.0.tar", "RPi4.aarch64", ""));
+  CHECK(!MatchesArch("LibreELEC-RPi4.aarch64-13.0.tar", "RPi.aarch64", ""));
+  CHECK(!MatchesArch("LibreELEC-Generic-legacy.x86_64-13.0.tar", "Generic.x86_64", ""));
+  CHECK(!MatchesArch("LibreELEC-xRPi4.aarch64-13.0.tar", "RPi4.aarch64", ""));
+  CHECK(MatchesArch("foo.tar", "RPi4.aarch64", "^foo"));
+  CHECK(!MatchesArch("foo.tar", "", "[invalid"));
+  CHECK_EQ(ExtractDate("13.0-devel-20261020103000-abc1234"), "20261020");
+  CHECK_EQ(ExtractDate("12.2-nightly-20251005-7adb5c2"), "20251005");
+  CHECK_EQ(ExtractDate("12.0.1"), "");
+  CHECK_EQ(ExtractDate("build-12345678"), "");
+  CHECK_EQ(ExtractDate("2026-07-24.1-LibreELEC-13-Release"), "20260724");
+  CHECK_EQ(ExtractDate("v2026.07.24"), "20260724");
+  CHECK_EQ(ExtractDate("20.5-VDR-0724"), "");
+  CHECK_EQ(ExtractDate("2026-13-01"), "");
+  CHECK_EQ(JsonUrl("https://releases.libreelec.tv"), "https://releases.libreelec.tv/releases.json");
+  CHECK_EQ(JsonUrl("https://x/y/releases.json"), "https://x/y/releases.json");
+  CHECK_EQ(UrlDirectory("https://x/y/releases.json"), "https://x/y/");
+  CHECK_EQ(UrlDirectory("https://x"), "https://x/");
+  CHECK_EQ(ResolveUrl("https://x/a/b/", "../c.tar"), "https://x/a/b/../c.tar");
+  CHECK_EQ(ResolveUrl("https://x/a/b/", "//y/c.tar"), "https://y/c.tar");
+  CHECK_EQ(FormatSize(150000000), "143 MB");
+  CHECK_EQ(FormatSize(-1), "?");
+  CHECK(ParseTimestamp("1970-01-02 00:00:00") == 86400);
+  CHECK(ParseTimestamp("1970-01-02T00:00:01Z") == 86401);
+  CHECK(ParseTimestamp("") == 0);
+}
+
+static void TestCompare(void)
+{
+  cSysInfo sys;
+  sys.version = "13.0-devel-20261020103000-abc1234";
+  sys.buildTime = ParseTimestamp("2026-10-20 10:30:00");
+  cReleaseInfo r;
+  r.name = "LibreELEC-RPi4.aarch64-13.0-devel-20261020103000-abc1234.tar";
+  r.label = "13.0-devel-20261020103000-abc1234";
+  CHECK(CompareWithInstalled(r, sys) == crSame);
+  r.label = "13.0-devel-20261021090000-def5678";
+  r.name = "LibreELEC-RPi4.aarch64-" + r.label + ".tar";
+  CHECK(CompareWithInstalled(r, sys) == crNewer);
+  r.label = "13.0-devel-20261001090000-def5678";
+  r.name = "LibreELEC-RPi4.aarch64-" + r.label + ".tar";
+  CHECK(CompareWithInstalled(r, sys) == crOlder);
+  // same day, later build
+  r.label = "13.0-devel-20261020200000-fff0000";
+  r.name = "x";
+  r.timestamp = ParseTimestamp("2026-10-20 20:00:00");
+  CHECK(CompareWithInstalled(r, sys) == crNewer);
+  r.timestamp = 0;
+  CHECK(CompareWithInstalled(r, sys) == crUnknown);
+  // releases
+  cSysInfo rel;
+  rel.version = "12.0.1";
+  cReleaseInfo r2;
+  r2.label = "12.0.2";
+  CHECK(CompareWithInstalled(r2, rel) == crNewer);
+  r2.label = "12.0.0";
+  CHECK(CompareWithInstalled(r2, rel) == crOlder);
+  r2.label = "12.0.1";
+  CHECK(CompareWithInstalled(r2, rel) == crSame);
+  r2.label = "12.0.10";
+  CHECK(CompareWithInstalled(r2, rel) == crNewer);
+  // dated build vs release
+  r2.label = "13.0-nightly-20261020-abc";
+  CHECK(CompareWithInstalled(r2, rel) == crNewer);
+  r2.label = "12.0-nightly-20261020-abc";
+  CHECK(CompareWithInstalled(r2, rel) == crUnknown);
+  cSysInfo empty;
+  CHECK(CompareWithInstalled(r2, empty) == crUnknown);
+  // u-boot label suffix is ignored
+  cSysInfo ub;
+  ub.version = "12.2-nightly-20250905-cc764b5";
+  cReleaseInfo r3;
+  r3.name = "LibreELEC-A64.aarch64-12.2-nightly-20250905-cc764b5-pine64.img.gz";
+  r3.label = "12.2-nightly-20250905-cc764b5-pine64 (pine64)";
+  CHECK(CompareWithInstalled(r3, ub) == crSame);
+}
+
+static void TestSort(void)
+{
+  std::vector<cReleaseInfo> v(4);
+  v[0].channel = "A"; v[0].name = "x-20250101.tar"; v[0].label = "a";
+  v[1].channel = "B"; v[1].name = "x-20260101.tar"; v[1].label = "b";
+  v[2].channel = "A"; v[2].name = "x-20250301.tar"; v[2].label = "c";
+  v[3].channel = "A"; v[3].name = "y.tar"; v[3].label = "d"; v[3].timestamp = ParseTimestamp("2025-02-01 00:00:00");
+  SortReleases(v);
+  CHECK_EQ(v[0].label, "c");
+  CHECK_EQ(v[1].label, "d");
+  CHECK_EQ(v[2].label, "a");
+  CHECK_EQ(v[3].label, "b");
+}
+
+int main(void)
+{
+  TestJson();
+  TestSha256();
+  TestOsRelease();
+  TestReleasesJson();
+  TestGithub();
+  TestGithubVdrSternElec();
+  TestIndex();
+  TestHelpers();
+  TestCompare();
+  TestSort();
+  printf("%d checks, %d failures\n", checks, failures);
+  return failures ? 1 : 0;
+}

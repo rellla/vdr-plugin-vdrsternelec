@@ -1,0 +1,20 @@
+# vdrsternelec release servers
+# Format: [!]type|name|url|channel|filter
+#   type    json   = LibreELEC style server with releases.json
+#           github = GitHub releases, url is owner/repo
+#           index  = plain HTTP directory listing
+#   channel channel (json) or text contained in the tag (github), empty = all
+#   filter  optional regular expression for file names
+#   A leading '!' disables an entry.
+
+# Official VDR*ELEC releases (all distributions, matched by device)
+github|VDR*ELEC|Zabrimus/VDRSternELEC||
+
+# Only LibreELEC 13 based releases
+!github|VDR*ELEC LE13|Zabrimus/VDRSternELEC|LibreELEC-13|
+
+# Own builds with a releases.json
+!json|My builds|https://builds.example.org/vdrelec/||
+
+# Update files in a directory on the NAS
+!index|NAS|http://192.168.1.10/vdrelec/||
