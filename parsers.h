@@ -141,7 +141,9 @@ std::string ReleaseKey(const cReleaseInfo &Release);
   ///< Sortable key YYYYMMDDHHMMSS from the timestamp or a date in the
   ///< label, name or channel. Empty if unknown.
 time_t ParseTimestamp(const std::string &s);
-  ///< Parses "YYYY-MM-DD HH:MM:SS" or ISO 8601 "YYYY-MM-DDTHH:MM:SSZ" (UTC).
+  ///< Parses "YYYY-MM-DD HH:MM:SS" (local time, as written by the LibreELEC
+  ///< release scripts) or ISO 8601 with time zone, e.g. "...T10:00:00Z" (UTC)
+  ///< or "...T12:00:00+02:00".
 std::string JsonUrl(const std::string &Base);
   ///< Returns the URL of releases.json for the given server URL.
 std::string UrlDirectory(const std::string &Url);

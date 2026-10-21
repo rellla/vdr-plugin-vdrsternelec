@@ -1,6 +1,13 @@
 VDR Plugin 'vdrsternelec' Revision History
 -------------------------------------------
 
+2026-10-21: Version 0.3.1
+
+- Fixed: the build date of releases from a releases.json was shown two hours
+  late (in CEST). Time stamps without time zone are local time now, as
+  written by the LibreELEC release scripts; time stamps with time zone
+  (e.g. from GitHub) are still converted correctly.
+
 2026-10-21: Version 0.3.0
 
 - New source type "smb": Samba shares, accessed directly with libsmbclient

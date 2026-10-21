@@ -16,6 +16,15 @@
 #include <string>
 #include <vector>
 
+static std::string LocalDigits(time_t t)
+{
+  char buf[32];
+  struct tm tm;
+  localtime_r(&t, &tm);
+  strftime(buf, sizeof(buf), "%Y%m%d%H%M%S", &tm);
+  return buf;
+}
+
 static int failures = 0;
 static int checks = 0;
 
@@ -223,7 +232,7 @@ static void TestGithubVdrSternElec(void)
      CHECK_EQ(r[0].name, "CE-Amlogic-ne.aarch64-20.5-VDR-0724.tar");
      CHECK_EQ(r[0].label, "20.5-VDR-0724");
      CHECK_EQ(r[0].url, "u3");
-     CHECK_EQ(ReleaseKey(r[0]), "20260724170100");
+     CHECK_EQ(ReleaseKey(r[0]), LocalDigits(ParseTimestamp("2026-07-24T17:01:00Z")));
      CHECK_EQ(ReleaseKey(r[1]), "20260710000000"); // from the tag
      }
   r.clear();
@@ -472,8 +481,21 @@ static void TestHelpers(void)
   CHECK_EQ(ResolveUrl("https://x/a/b/", "//y/c.tar"), "https://y/c.tar");
   CHECK_EQ(FormatSize(150000000), "143 MB");
   CHECK_EQ(FormatSize(-1), "?");
-  CHECK(ParseTimestamp("1970-01-02 00:00:00") == 86400);
+  CHECK(ParseTimestamp("1970-01-02T00:00:00Z") == 86400);
   CHECK(ParseTimestamp("1970-01-02T00:00:01Z") == 86401);
+  CHECK(ParseTimestamp("1970-01-02T00:00:01.123Z") == 86401);
+  CHECK(ParseTimestamp("1970-01-02T02:00:00+02:00") == 86400);
+  CHECK(ParseTimestamp("1970-01-01T22:00:00-0200") == 86400);
+  // without time zone: local time (releases.json written by releases.py)
+  {
+    time_t t = ParseTimestamp("2026-10-21 22:47:00");
+    struct tm tm;
+    localtime_r(&t, &tm);
+    CHECK(tm.tm_year == 126 && tm.tm_mon == 9 && tm.tm_mday == 21 && tm.tm_hour == 22 && tm.tm_min == 47);
+    CHECK_EQ(FormatBuildDate(t, true), "21.10.2026 22:47");
+    t = ParseTimestamp("2026-01-15 08:00:00"); // winter time
+    CHECK_EQ(FormatBuildDate(t, true), "15.01.2026 08:00");
+  }
   CHECK(ParseTimestamp("") == 0);
 }
 

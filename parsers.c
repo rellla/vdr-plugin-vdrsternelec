@@ -140,11 +140,13 @@ time_t ParseTimestamp(const std::string &s)
   memset(&tm, 0, sizeof(tm));
   int y, mo, d, h = 0, mi = 0, se = 0;
   char sep;
-  int n = sscanf(s.c_str(), "%d-%d-%d%c%d:%d:%d", &y, &mo, &d, &sep, &h, &mi, &se);
+  int consumed = 0;
+  int n = sscanf(s.c_str(), "%d-%d-%d%c%d:%d:%d%n", &y, &mo, &d, &sep, &h, &mi, &se, &consumed);
   if (n < 3)
      return 0;
   if (n < 7) {
      h = mi = se = 0;
+     consumed = 0;
      }
   tm.tm_year = y - 1900;
   tm.tm_mon = mo - 1;
@@ -152,7 +154,27 @@ time_t ParseTimestamp(const std::string &s)
   tm.tm_hour = h;
   tm.tm_min = mi;
   tm.tm_sec = se;
-  return timegm(&tm);
+  // A time zone may follow (fractions of seconds are skipped): "Z" or +hh:mm
+  // means UTC with an offset (GitHub). Without a time zone the time is local
+  // time - the LibreELEC release scripts write the local file time into
+  // releases.json.
+  const char *p = s.c_str() + consumed;
+  if (consumed) {
+     if (*p == '.')
+        while (*++p >= '0' && *p <= '9')
+              ;
+     if (*p == 'Z' || *p == 'z')
+        return timegm(&tm);
+     if (*p == '+' || *p == '-') {
+        int oh = 0, om = 0;
+        if (sscanf(p + 1, "%2d:%2d", &oh, &om) >= 1 || sscanf(p + 1, "%2d%2d", &oh, &om) >= 1) {
+           int offset = (oh * 60 + om) * 60;
+           return timegm(&tm) - (*p == '+' ? offset : -offset);
+           }
+        }
+     }
+  tm.tm_isdst = -1;
+  return mktime(&tm);
 }
 
 std::string UrlDirectory(const std::string &Url)
@@ -911,7 +933,7 @@ std::string ReleaseKey(const cReleaseInfo &r)
   if (r.timestamp) {
      char buf[32];
      struct tm tm;
-     gmtime_r(&r.timestamp, &tm);
+     localtime_r(&r.timestamp, &tm);
      strftime(buf, sizeof(buf), "%Y%m%d%H%M%S", &tm);
      return buf;
      }
