@@ -5,7 +5,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
- * maintenance.h: Backups, restore, images for rollback and addons
+ * maintenance.h: Backups, restore, images for rollback, addons and system functions
  */
 
 #ifndef __VDRSTERNELEC_MAINTENANCE_H
@@ -63,5 +63,28 @@ bool IsDriverAddon(const std::string &Id);
 bool CheckArchive(const std::string &File, const std::string &Id, std::string &Error);
   ///< All entries of the archive must be inside the folder Id.
 bool InstallAddon(const std::string &File, const std::string &Id, std::string &Error);
+
+// --- System functions (install.sh) ---------------------------------------------------
+
+enum eSystemAction { saBootVdr, saBootKodi, saWeb, saTriggerhappy, saSamples, saMerge, saActions };
+
+std::string SystemActionCommand(int Action);
+  ///< "install.sh -b vdr" etc., for messages and logs.
+bool InstallScriptAvailable(void);
+std::string BootTarget(void);
+  ///< START_PRG from /storage/.profile ("vdr", "kodi"), empty if not set.
+bool CefbrowserInstalled(void);
+  ///< Precondition for saWeb.
+bool SystemActionDone(int Action);
+  ///< True if the result of the action is present (web components or
+  ///< triggerhappy installed, sample configuration extracted, boot target set).
+int RunSystemAction(int Action, const std::string &WorkDir, std::string &Output, std::string &Error);
+  ///< Runs install.sh with the option for Action and waits for it. install.sh
+  ///< runs in its own systemd unit, because some options may stop VDR (e.g.
+  ///< -i restarts VDRCoreELEC.service, which switches to Kodi if that is the
+  ///< boot target). The output is also stored in WorkDir/install.log.
+  ///< Returns the exit code of install.sh, -1 if it couldn't be run.
+std::string SystemActionLog(const std::string &WorkDir);
+  ///< Output of the last run.
 
 #endif //__VDRSTERNELEC_MAINTENANCE_H

@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: vdr-vdrsternelec 0.5.0\n"
+"Project-Id-Version: vdr-vdrsternelec 0.6.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
 "POT-Creation-Date: 2026-10-21 17:30+0200\n"
 "PO-Revision-Date: 2026-10-21 17:30+0200\n"
@@ -349,6 +349,9 @@ msgstr "VDR*ELEC von Release-Servern aktualisieren"
 msgid "VDR*ELEC update download is running"
 msgstr "VDR*ELEC-Update wird heruntergeladen"
 
+msgid "VDR*ELEC system function is running"
+msgstr "VDR*ELEC-Systemfunktion läuft"
+
 msgid "Local/network directory"
 msgstr "Lokales/Netzwerk-Verzeichnis"
 
@@ -548,3 +551,105 @@ msgstr "manuell"
 
 msgid "Backup created"
 msgstr "Backup erstellt"
+
+msgid "System functions..."
+msgstr "Systemfunktionen..."
+
+msgid "System functions"
+msgstr "Systemfunktionen"
+
+msgid "Start after boot"
+msgstr "Startprogramm"
+
+msgid "not set"
+msgstr "nicht gesetzt"
+
+msgid "Start VDR after boot"
+msgstr "Nach dem Booten VDR starten"
+
+msgid "Start Kodi after boot"
+msgstr "Nach dem Booten Kodi starten"
+
+msgid "Install web components (cefbrowser, remotetranscode)"
+msgstr "Web-Komponenten installieren (cefbrowser, remotetranscode)"
+
+msgid "Install triggerhappy (hotkey daemon)"
+msgstr "triggerhappy installieren (Hotkey-Dienst)"
+
+msgid "Install sample configuration"
+msgstr "Beispielkonfiguration installieren"
+
+msgid "Add missing sample files to configuration"
+msgstr "Fehlende Beispieldateien in Konfiguration kopieren"
+
+msgid "cefbrowser missing"
+msgstr "cefbrowser fehlt"
+
+msgid "Last function"
+msgstr "Letzte Funktion"
+
+msgid "Show output of install.sh"
+msgstr "Ausgabe von install.sh anzeigen"
+
+msgid "Start VDR after boot?"
+msgstr "Nach dem Booten VDR starten?"
+
+msgid "Start Kodi after boot?"
+msgstr "Nach dem Booten Kodi starten?"
+
+msgid "Install web components?"
+msgstr "Web-Komponenten installieren?"
+
+msgid "Install and start triggerhappy?"
+msgstr "triggerhappy installieren und starten?"
+
+msgid "Extract sample configuration to vdropt-sample?"
+msgstr "Beispielkonfiguration nach vdropt-sample entpacken?"
+
+msgid "Copy all missing sample files into vdropt (backup first)?"
+msgstr "Alle fehlenden Beispieldateien nach vdropt kopieren (vorher Backup)?"
+
+msgid "Files deleted from vdropt on purpose come back - continue?"
+msgstr "Absichtlich gelöschte Dateien kommen zurück - fortfahren?"
+
+msgid "Boot target is Kodi - this may switch to Kodi. Continue?"
+msgstr "Startprogramm ist Kodi - evtl. Wechsel zu Kodi. Fortfahren?"
+
+msgid "Output of install.sh"
+msgstr "Ausgabe von install.sh"
+
+msgid "no output"
+msgstr "keine Ausgabe"
+
+msgid "Unknown function"
+msgstr "Unbekannte Funktion"
+
+msgid "install.sh not found"
+msgstr "install.sh nicht gefunden"
+
+msgid "cefbrowser is not installed"
+msgstr "cefbrowser ist nicht installiert"
+
+msgid "Running %s..."
+msgstr "%s läuft..."
+
+msgid "not run, backup failed"
+msgstr "nicht ausgeführt, Backup fehlgeschlagen"
+
+msgid "done"
+msgstr "erledigt"
+
+msgid "failed (exit code %d)"
+msgstr "fehlgeschlagen (Exit-Code %d)"
+
+msgid "failed"
+msgstr "fehlgeschlagen"
+
+msgid "Takes effect at the next boot"
+msgstr "Wirkt ab dem nächsten Booten"
+
+msgid "cefbrowser and remotetranscode start at the next boot"
+msgstr "cefbrowser und remotetranscode starten beim nächsten Booten"
+
+msgid "Restart VDR to use the new configuration files"
+msgstr "VDR neu starten, um die neuen Dateien zu nutzen"

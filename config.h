@@ -57,6 +57,8 @@ public:
   char VdrStopCommand[256];
   char VdrStartCommand[256];
   char DetachCommand[256];  ///< runs the restore script outside of VDR's service
+  char InstallScript[256];  ///< VDR*ELEC's install.sh
+  char RunScriptCommand[256]; ///< runs install.sh outside of VDR's service and waits for it
   cPluginConfig(void);
   bool SetupParse(const char *Name, const char *Value);
   };

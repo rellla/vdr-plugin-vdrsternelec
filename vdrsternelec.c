@@ -18,6 +18,7 @@
 #include "common.h"
 #include "config.h"
 #include "http.h"
+#include "maintenance.h"
 #include "menu.h"
 #include "updater.h"
 
@@ -25,7 +26,7 @@
 #error "VDR-2.4.0 API version or greater is required!"
 #endif
 
-static const char *VERSION        = "0.5.0";
+static const char *VERSION        = "0.6.0";
 static const char *DESCRIPTION    = trNOOP("Update VDR*ELEC from release servers");
 static const char *MAINMENUENTRY  = trNOOP("VDR*ELEC update");
 
@@ -122,6 +123,8 @@ cString cPluginVdrsternelec::Active(void)
   cUpdater::eState s = Updater.State();
   if (s == cUpdater::usDownloading || s == cUpdater::usVerifying)
      return tr("VDR*ELEC update download is running");
+  if (s == cUpdater::usBackup || s == cUpdater::usSystem || s == cUpdater::usPreparing)
+     return tr("VDR*ELEC system function is running");
   return NULL;
 }
 
@@ -211,6 +214,13 @@ const char **cPluginVdrsternelec::SVDRPHelpPages(void)
     "    installation of driver addons, if enabled).",
     "BACKUP\n"
     "    Create a backup of the configuration now.",
+    "SYSTEM [ BOOT VDR|KODI | WEB | TRIGGERHAPPY | SAMPLES | MERGE | LOG ]\n"
+    "    Without option, show the state of the system functions. Otherwise run\n"
+    "    VDR*ELEC's install.sh in the background: BOOT VDR|KODI (-b, program\n"
+    "    started after boot), WEB (-w, web components), TRIGGERHAPPY (-T),\n"
+    "    SAMPLES (-i, sample configuration), MERGE (-C, copy all missing\n"
+    "    sample files into vdropt, a backup is created first).\n"
+    "    LOG shows the output of the last run.",
     "SERVERS\n"
     "    List the configured release servers.",
     NULL
@@ -319,6 +329,57 @@ cString cPluginVdrsternelec::SVDRPCommand(const char *Command, const char *Optio
         return err.c_str();
         }
      return "Backup started";
+     }
+  if (!strcasecmp(Command, "SYSTEM")) {
+     std::string opt = Option ? Trim(Option) : "";
+     if (opt.empty()) {
+        if (!InstallScriptAvailable()) {
+           ReplyCode = 550;
+           return cString::sprintf("install.sh not found: %s", PluginConfig.InstallScript);
+           }
+        std::string boot = BootTarget();
+        std::string result = Updater.SystemResult();
+        return cString::sprintf("Start after boot: %s\nWeb components: %s\nTriggerhappy: %s\nSample configuration: %s\nLast function: %s",
+                                boot.empty() ? "not set" : boot.c_str(),
+                                SystemActionDone(saWeb) ? "installed" : CefbrowserInstalled() ? "not installed" : "not installed (cefbrowser missing)",
+                                SystemActionDone(saTriggerhappy) ? "installed" : "not installed",
+                                SystemActionDone(saSamples) ? "installed" : "not installed",
+                                result.empty() ? "-" : result.c_str());
+        }
+     if (!strcasecmp(opt.c_str(), "LOG")) {
+        std::string log = Trim(SystemActionLog(PluginConfig.WorkDir));
+        if (log.empty()) {
+           ReplyCode = 550;
+           return "No output";
+           }
+        return log.c_str();
+        }
+     int action = -1;
+     if (!strncasecmp(opt.c_str(), "BOOT", 4)) {
+        std::string target = Trim(opt.substr(4));
+        if (!strcasecmp(target.c_str(), "VDR"))
+           action = saBootVdr;
+        else if (!strcasecmp(target.c_str(), "KODI"))
+           action = saBootKodi;
+        }
+     else if (!strcasecmp(opt.c_str(), "WEB"))
+        action = saWeb;
+     else if (!strcasecmp(opt.c_str(), "TRIGGERHAPPY"))
+        action = saTriggerhappy;
+     else if (!strcasecmp(opt.c_str(), "SAMPLES"))
+        action = saSamples;
+     else if (!strcasecmp(opt.c_str(), "MERGE"))
+        action = saMerge;
+     if (action < 0) {
+        ReplyCode = 501;
+        return "Invalid option (see HELP SYSTEM)";
+        }
+     std::string err;
+     if (!Updater.RequestSystemAction(action, err)) {
+        ReplyCode = 550;
+        return err.c_str();
+        }
+     return cString::sprintf("%s started (see SYSTEM and SYSTEM LOG)", SystemActionCommand(action).c_str());
      }
   if (!strcasecmp(Command, "SERVERS")) {
      std::vector<cServerEntry> servers = ServerList.Get();

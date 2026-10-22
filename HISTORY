@@ -1,6 +1,17 @@
 VDR Plugin 'vdrsternelec' Revision History
 -------------------------------------------
 
+2026-10-22: Version 0.6.0
+
+- New menu "System functions" (main menu and setup page) and SVDRP command
+  SYSTEM to run functions of VDR*ELEC's install.sh: boot program VDR/Kodi
+  (-b), web components (-w), triggerhappy (-T), sample configuration (-i)
+  and adding missing sample files to the configuration (-C, with a backup
+  before and additional confirmations). install.sh runs in its own systemd
+  unit; its output can be shown in the menu.
+- VDR does not shut down automatically while a backup or a system function
+  is running.
+
 2026-10-22: Version 0.5.0
 
 - All functions are available from the setup page (update menu, release

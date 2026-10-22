@@ -51,6 +51,8 @@ cPluginConfig::cPluginConfig(void)
   strn0cpy(VdrStopCommand, "systemctl stop vdropt.service", sizeof(VdrStopCommand));
   strn0cpy(VdrStartCommand, "systemctl start vdropt.service", sizeof(VdrStartCommand));
   strn0cpy(DetachCommand, "systemd-run --no-block --unit=vdrsternelec-restore-%ld", sizeof(DetachCommand));
+  strn0cpy(InstallScript, "/usr/local/bin/install.sh", sizeof(InstallScript));
+  strn0cpy(RunScriptCommand, "systemd-run --wait --quiet --collect --unit=vdrsternelec-install-%ld", sizeof(RunScriptCommand));
   Board[0] = 0;
   Arch[0] = 0;
   LastNotified[0] = 0;
@@ -87,6 +89,8 @@ bool cPluginConfig::SetupParse(const char *Name, const char *Value)
   else if (!strcasecmp(Name, "VdrStopCommand"))    strn0cpy(VdrStopCommand, Value, sizeof(VdrStopCommand));
   else if (!strcasecmp(Name, "VdrStartCommand"))   strn0cpy(VdrStartCommand, Value, sizeof(VdrStartCommand));
   else if (!strcasecmp(Name, "DetachCommand"))     strn0cpy(DetachCommand, Value, sizeof(DetachCommand));
+  else if (!strcasecmp(Name, "InstallScript"))     strn0cpy(InstallScript, Value, sizeof(InstallScript));
+  else if (!strcasecmp(Name, "RunScriptCommand"))  strn0cpy(RunScriptCommand, Value, sizeof(RunScriptCommand));
   else if (!strcasecmp(Name, "Arch"))              strn0cpy(Arch, Value, sizeof(Arch));
   else if (!strcasecmp(Name, "LastNotified"))      strn0cpy(LastNotified, Value, sizeof(LastNotified));
   else

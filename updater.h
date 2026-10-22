@@ -25,7 +25,7 @@ struct cServerResult {
 
 class cUpdater : public cThread {
 public:
-  enum eState { usIdle, usChecking, usDownloading, usVerifying, usReady, usError, usPreparing, usBackup };
+  enum eState { usIdle, usChecking, usDownloading, usVerifying, usReady, usError, usPreparing, usBackup, usSystem };
 private:
   cMutex mutex;
   cCondVar condVar;
@@ -48,6 +48,9 @@ private:
   bool autoRebootBlocked;
   bool rebootRequested;
   bool backupRequested;
+  bool systemRequested;
+  int systemAction;         ///< eSystemAction
+  std::string systemResult;
   bool postInstallAddons;
   std::string startupMessage;
   std::string lastResult;
@@ -70,6 +73,8 @@ private:
   void InstallStagedAddons(bool Drivers);
   bool PrepareReboot(void);
   bool DoBackup(const std::string &Reason, std::string &Error);
+  void DoSystemAction(int Action);
+  bool Working(void);
   bool Allowed(const cReleaseInfo &Release);
   int InstalledMajor(void);
   static bool RemoveOtherUpdates(const std::string &Dir, const std::string &Keep);
@@ -115,6 +120,11 @@ public:
   bool RequestBackup(std::string &Error);
   std::string LastResult(void);
   ///< Result of the last update (installed/not installed), empty if unknown.
+  bool RequestSystemAction(int Action, std::string &Error);
+  ///< Runs install.sh with the option for Action (eSystemAction) in the
+  ///< updater thread. saMerge creates a backup first.
+  std::string SystemResult(void);
+  ///< Result of the last system action, empty if none.
   std::vector<cReleaseInfo> RollbackImages(void);
   ///< Update files kept for rollback.
   bool MajorAllowed(const cReleaseInfo &Release);

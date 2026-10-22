@@ -112,6 +112,8 @@ cUpdater::cUpdater(void)
   autoRebootBlocked = false;
   rebootRequested = false;
   backupRequested = false;
+  systemRequested = false;
+  systemAction = -1;
   postInstallAddons = false;
   deferredDownloadSet = false;
   recording = false;
@@ -448,7 +450,7 @@ int cUpdater::ProgressPercent(void)
 bool cUpdater::Busy(void)
 {
   cMutexLock MutexLock(&mutex);
-  return state == usChecking || state == usDownloading || state == usVerifying || state == usPreparing || state == usBackup || checkRequested || installRequested || rebootRequested || backupRequested;
+  return state == usChecking || state == usDownloading || state == usVerifying || state == usPreparing || state == usBackup || state == usSystem || checkRequested || installRequested || rebootRequested || backupRequested || systemRequested;
 }
 
 std::string cUpdater::StateText(void)
@@ -467,6 +469,7 @@ std::string cUpdater::StateText(void)
     case usError:     return tr("Error");
     case usPreparing: return tr("Preparing reboot...");
     case usBackup:    return tr("Creating backup...");
+    case usSystem:    return cString::sprintf(tr("Running %s..."), SystemActionCommand(systemAction).c_str()).operator const char*();
     }
   return "";
 }
@@ -595,7 +598,7 @@ bool cUpdater::Reboot(std::string &Error)
      return false;
      }
   cMutexLock MutexLock(&mutex);
-  if (state == usDownloading || state == usVerifying || state == usPreparing || state == usBackup) {
+  if (Working() || systemRequested) {
      Error = tr("Please wait until the current action is finished");
      return false;
      }
@@ -624,7 +627,7 @@ bool cUpdater::DoBackup(const std::string &Reason, std::string &Error)
 bool cUpdater::RequestBackup(std::string &Error)
 {
   cMutexLock MutexLock(&mutex);
-  if (state == usDownloading || state == usVerifying || state == usPreparing || state == usBackup || backupRequested) {
+  if (Working() || backupRequested || systemRequested) {
      Error = tr("Please wait until the current action is finished");
      return false;
      }
@@ -633,6 +636,107 @@ bool cUpdater::RequestBackup(std::string &Error)
   if (!Running())
      Start();
   return true;
+}
+
+bool cUpdater::Working(void)
+{
+  // mutex must be locked
+  return state == usDownloading || state == usVerifying || state == usPreparing || state == usBackup || state == usSystem;
+}
+
+bool cUpdater::RequestSystemAction(int Action, std::string &Error)
+{
+  if (Action < 0 || Action >= saActions) {
+     Error = tr("Unknown function");
+     return false;
+     }
+  if (!InstallScriptAvailable()) {
+     Error = std::string(tr("install.sh not found")) + ": " + PluginConfig.InstallScript;
+     return false;
+     }
+  if (Action == saWeb && !CefbrowserInstalled()) {
+     // install.sh -w would refuse, too
+     Error = tr("cefbrowser is not installed");
+     return false;
+     }
+  cMutexLock MutexLock(&mutex);
+  if (Working() || backupRequested || systemRequested || rebootRequested) {
+     Error = tr("Please wait until the current action is finished");
+     return false;
+     }
+  systemAction = Action;
+  systemRequested = true;
+  condVar.Broadcast();
+  if (!Running())
+     Start();
+  return true;
+}
+
+std::string cUpdater::SystemResult(void)
+{
+  cMutexLock MutexLock(&mutex);
+  return systemResult;
+}
+
+void cUpdater::DoSystemAction(int Action)
+{
+  eState old = State();
+  std::string msg = Message();
+  std::string command = SystemActionCommand(Action);
+  if (Action == saMerge) {
+     // copies all sample files into vdropt, which may also bring back files
+     // the user deleted on purpose
+     SetState(usBackup);
+     std::string err;
+     if (!DoBackup(command, err)) {
+        esyslog_plg("backup failed, not running %s: %s", command.c_str(), err.c_str());
+        {
+          cMutexLock MutexLock(&mutex);
+          systemResult = *cString::sprintf("%s: %s - %s", *DayDateTime(time(NULL)), command.c_str(), tr("not run, backup failed"));
+        }
+        SetState(usError, std::string(tr("Backup failed")) + ": " + err);
+        return;
+        }
+     }
+  {
+    cMutexLock MutexLock(&mutex);
+    systemAction = Action;
+  }
+  SetState(usSystem);
+  std::string output, err;
+  int rc = RunSystemAction(Action, PluginConfig.WorkDir, output, err);
+  std::string result;
+  if (rc == 0)
+     result = tr("done");
+  else if (rc > 0)
+     result = *cString::sprintf(tr("failed (exit code %d)"), rc);
+  else
+     result = std::string(tr("failed")) + ": " + err;
+  {
+    cMutexLock MutexLock(&mutex);
+    systemResult = *cString::sprintf("%s: %s - %s", *DayDateTime(time(NULL)), command.c_str(), result.c_str());
+  }
+  if (rc != 0) {
+     // the last line of the output usually tells what went wrong
+     std::string detail = err;
+     if (rc > 0) {
+        std::string out = Trim(output);
+        size_t nl = out.rfind('\n');
+        detail = nl == std::string::npos ? out : out.substr(nl + 1);
+        }
+     SetState(usError, command + ": " + result + (detail.empty() || rc < 0 ? "" : " - " + detail));
+     return;
+     }
+  SetState(old, msg);
+  const char *hint = NULL;
+  switch (Action) {
+    case saBootVdr:
+    case saBootKodi: hint = tr("Takes effect at the next boot"); break;
+    case saWeb:      hint = tr("cefbrowser and remotetranscode start at the next boot"); break;
+    case saMerge:    hint = tr("Restart VDR to use the new configuration files"); break;
+    default: break;
+    }
+  Skins.QueueMessage(mtInfo, hint ? *cString::sprintf("%s: %s. %s.", command.c_str(), result.c_str(), hint) : *cString::sprintf("%s: %s", command.c_str(), result.c_str()));
 }
 
 bool cUpdater::PrepareReboot(void)
@@ -1301,6 +1405,7 @@ void cUpdater::Action(void)
         bool automatic = false;
         bool reboot = false;
         bool backup = false;
+        int system = -1;
         bool addons = false;
         bool deferred = false;
         std::string message;
@@ -1314,13 +1419,13 @@ void cUpdater::Action(void)
              addons = postInstallAddons;
              postInstallAddons = false;
              }
-          bool idle = state != usDownloading && state != usVerifying && state != usPreparing && state != usBackup;
+          bool idle = !Working();
           if (deferredDownloadSet && idle && InWindow()) {
              deferredDownloadSet = false;
              deferred = true;
              release = deferredDownload;
              }
-          if (!checkRequested && !installRequested && !rebootRequested && !backupRequested && !deferred && message.empty() && !addons) {
+          if (!checkRequested && !installRequested && !rebootRequested && !backupRequested && !systemRequested && !deferred && message.empty() && !addons) {
              time_t now = time(NULL);
              if (PluginConfig.AutoCheck && nextAutoCheck && now >= nextAutoCheck && idle)
                 automatic = true;
@@ -1336,6 +1441,10 @@ void cUpdater::Action(void)
           else if (backupRequested) {
              backupRequested = false;
              backup = true;
+             }
+          else if (systemRequested) {
+             systemRequested = false;
+             system = systemAction;
              }
           else if (installRequested) {
              installRequested = false;
@@ -1371,6 +1480,8 @@ void cUpdater::Action(void)
            else
               SetState(usError, std::string(tr("Backup failed")) + ": " + err);
            }
+        else if (system >= 0)
+           DoSystemAction(system);
         else if (install)
            DoInstall(release);
         else if (check) {

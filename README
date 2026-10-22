@@ -182,7 +182,8 @@ Setup options
 
 All functions of the plugin are also available from the plugin's setup page
 (Setup -> Plugins -> vdrsternelec), so the main menu entry can be hidden. The
-first three lines open the update menu, the server list and the backup menu.
+first four lines open the update menu, the server list, the backup menu and
+the system functions.
 
 General
   Hide main menu entry        Hide the plugin's entry in VDR's main menu.
@@ -305,6 +306,32 @@ before the reboot, all others after the reboot if the update was installed.
 Addons that are not installed are never installed by the plugin.
 
 
+System functions (install.sh)
+-----------------------------
+
+"System functions..." (main menu and setup page) runs functions of VDR*ELEC's
+/usr/local/bin/install.sh. The menu shows which ones are already done.
+
+  Start VDR/Kodi after boot   install.sh -b vdr / -b kodi (START_PRG in
+                              /storage/.profile, takes effect at next boot)
+  Install web components      install.sh -w (cefbrowser, remotetranscode;
+                              needs the cefbrowser addon, see "Addons")
+  Install triggerhappy        install.sh -T (hotkey daemon)
+  Install sample              install.sh -i (extracts the samples to
+  configuration               /storage/.config/vdropt-sample, existing files
+                              are not changed)
+  Add missing sample files    install.sh -C: copies all sample files that are
+  to configuration            missing into /storage/.config/vdropt. Files
+                              deleted on purpose (e.g. plugin configurations
+                              in conf.d) come back! A backup is created first,
+                              so this can be undone in "Backups & rollback".
+
+install.sh runs in its own systemd unit, because -i and -C restart
+VDRCoreELEC.service, which switches to Kodi if Kodi is the boot program. The
+output of the last run can be shown in the menu (and via SVDRP SYSTEM LOG).
+Configuration changes take effect after VDR has been restarted.
+
+
 Network access
 --------------
 
@@ -333,6 +360,9 @@ SVDRP commands
   REBOOT            Reboot now to install a downloaded update (backup and
                     driver addons first, if enabled).
   BACKUP            Create a backup now.
+  SYSTEM [<func>]   State of the system functions, or run one of them:
+                    BOOT VDR|KODI, WEB, TRIGGERHAPPY, SAMPLES, MERGE (see
+                    "System functions"). SYSTEM LOG shows the last output.
   SERVERS           List the configured servers.
 
 Example:

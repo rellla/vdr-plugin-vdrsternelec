@@ -100,6 +100,20 @@ public:
   virtual eOSState ProcessKey(eKeys Key) override;
   };
 
+// --- cMenuSystem ----------------------------------------------------------------------
+
+class cMenuSystem : public cOsdMenu {
+private:
+  time_t lastRefresh;
+  std::string lastState;
+  std::string lastResult;
+  void Set(void);
+  eOSState Run(int Action);
+public:
+  cMenuSystem(void);
+  virtual eOSState ProcessKey(eKeys Key) override;
+  };
+
 // --- cMenuSetupVdrsternelec --------------------------------------------------------
 
 class cMenuSetupVdrsternelec : public cMenuSetupPage {

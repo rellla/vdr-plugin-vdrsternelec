@@ -126,6 +126,7 @@ void cMenuUpdateMain::Set(void)
      }
   Add(new cOsdItem(tr("Release servers..."), osUser5));
   Add(new cOsdItem(tr("Backups & rollback..."), osUser6));
+  Add(new cOsdItem(tr("System functions..."), osUser7));
   std::vector<cServerResult> results = Updater.Results();
   if (!results.empty()) {
      Add(new cOsdItem(cString::sprintf("--- %s ---", tr("Available releases")), osUnknown, false));
@@ -202,6 +203,7 @@ eOSState cMenuUpdateMain::ProcessKey(eKeys Key)
     case osUser4: return CancelDownload();
     case osUser5: return AddSubMenu(new cMenuServers);
     case osUser6: return AddSubMenu(new cMenuBackups);
+    case osUser7: return AddSubMenu(new cMenuSystem);
     default: break;
     }
   if (state == osUnknown) {
@@ -684,6 +686,134 @@ eOSState cMenuBackups::ProcessKey(eKeys Key)
   return state;
 }
 
+// --- cMenuSystem ----------------------------------------------------------------------
+
+class cSystemItem : public cOsdItem {
+private:
+  int action;
+public:
+  cSystemItem(const char *Text, int Action) : cOsdItem(Text), action(Action) {}
+  int Action(void) const { return action; }
+  };
+
+cMenuSystem::cMenuSystem(void)
+:cOsdMenu(tr("System functions"), 20)
+{
+  lastRefresh = 0;
+  Set();
+  // start on the first function
+  for (cOsdItem *item = First(); item; item = Next(item)) {
+      if (dynamic_cast<cSystemItem *>(item)) {
+         SetCurrent(item);
+         break;
+         }
+      }
+  Display();
+}
+
+void cMenuSystem::Set(void)
+{
+  int current = Current();
+  Clear();
+  lastState = Updater.StateText();
+  lastResult = Updater.SystemResult();
+  Add(new cOsdItem(cString::sprintf("%s:\t%s", tr("Status"), lastState.c_str()), osUnknown, false));
+  if (!InstallScriptAvailable()) {
+     Add(new cOsdItem(cString::sprintf("%s: %s", tr("install.sh not found"), PluginConfig.InstallScript), osUnknown, false));
+     Display();
+     return;
+     }
+  std::string boot = BootTarget();
+  Add(new cOsdItem(cString::sprintf("%s:\t%s", tr("Start after boot"), boot == "vdr" ? "VDR" : boot == "kodi" ? "Kodi" : boot.empty() ? tr("not set") : boot.c_str()), osUnknown, false));
+  Add(new cOsdItem("", osUnknown, false));
+  struct { int action; const char *text; } items[] = {
+    { saBootVdr,      trNOOP("Start VDR after boot") },
+    { saBootKodi,     trNOOP("Start Kodi after boot") },
+    { saWeb,          trNOOP("Install web components (cefbrowser, remotetranscode)") },
+    { saTriggerhappy, trNOOP("Install triggerhappy (hotkey daemon)") },
+    { saSamples,      trNOOP("Install sample configuration") },
+    { saMerge,        trNOOP("Add missing sample files to configuration") },
+    };
+  for (size_t i = 0; i < sizeof(items) / sizeof(items[0]); i++) {
+      int a = items[i].action;
+      std::string text = tr(items[i].text);
+      if (a == saWeb && !CefbrowserInstalled())
+         text += std::string(" (") + tr("cefbrowser missing") + ")";
+      else if (a != saBootVdr && a != saBootKodi && SystemActionDone(a))
+         text += std::string(" (") + tr("installed") + ")";
+      Add(new cSystemItem(text.c_str(), a));
+      }
+  Add(new cOsdItem("", osUnknown, false));
+  Add(new cOsdItem(cString::sprintf("%s:", tr("Last function")), osUnknown, false));
+  Add(new cOsdItem(lastResult.empty() ? tr("none") : lastResult.c_str(), osUnknown, false));
+  if (!lastResult.empty() || !SystemActionLog(PluginConfig.WorkDir).empty())
+     Add(new cOsdItem(tr("Show output of install.sh"), osUser1));
+  if (current >= 0 && current < Count()) {
+     cOsdItem *item = Get(current);
+     if (item && item->Selectable())
+        SetCurrent(item);
+     }
+  Display();
+  lastRefresh = time(NULL);
+}
+
+eOSState cMenuSystem::Run(int Action)
+{
+  const char *question = NULL;
+  switch (Action) {
+    case saBootVdr:      question = tr("Start VDR after boot?"); break;
+    case saBootKodi:     question = tr("Start Kodi after boot?"); break;
+    case saWeb:          question = tr("Install web components?"); break;
+    case saTriggerhappy: question = tr("Install and start triggerhappy?"); break;
+    case saSamples:      question = tr("Extract sample configuration to vdropt-sample?"); break;
+    case saMerge:        question = tr("Copy all missing sample files into vdropt (backup first)?"); break;
+    default: return osContinue;
+    }
+  if (Action == saWeb && !CefbrowserInstalled()) {
+     Skins.Message(mtError, tr("cefbrowser is not installed"));
+     return osContinue;
+     }
+  if (!Interface->Confirm(question))
+     return osContinue;
+  if (Action == saMerge && !Interface->Confirm(tr("Files deleted from vdropt on purpose come back - continue?")))
+     return osContinue;
+  if ((Action == saSamples || Action == saMerge) && BootTarget() == "kodi" && !Interface->Confirm(tr("Boot target is Kodi - this may switch to Kodi. Continue?")))
+     return osContinue;
+  std::string err;
+  if (!Updater.RequestSystemAction(Action, err))
+     Skins.Message(mtError, err.c_str());
+  Set();
+  return osContinue;
+}
+
+eOSState cMenuSystem::ProcessKey(eKeys Key)
+{
+  bool hadSubMenu = HasSubMenu();
+  eOSState state = cOsdMenu::ProcessKey(Key);
+  if (HasSubMenu())
+     return state;
+  if (hadSubMenu) {
+     Set();
+     return state;
+     }
+  if (state == osUser1) {
+     std::string log = SystemActionLog(PluginConfig.WorkDir);
+     return AddSubMenu(new cMenuText(tr("Output of install.sh"), log.empty() ? tr("no output") : log.c_str()));
+     }
+  if (state == osUnknown && Key == kOk) {
+     cSystemItem *item = dynamic_cast<cSystemItem *>(Get(Current()));
+     if (item)
+        return Run(item->Action());
+     }
+  if (Key == kNone && time(NULL) != lastRefresh) {
+     if (Updater.StateText() != lastState || Updater.SystemResult() != lastResult)
+        Set(); // e.g. install.sh finished
+     else
+        lastRefresh = time(NULL);
+     }
+  return state;
+}
+
 // --- cMenuSetupVdrsternelec --------------------------------------------------------------
 
 cMenuSetupVdrsternelec::cMenuSetupVdrsternelec(void)
@@ -709,6 +839,7 @@ void cMenuSetupVdrsternelec::Set(void)
   Add(new cOsdItem(cString::sprintf("%s...", tr("VDR*ELEC update")), osUser1));
   Add(new cOsdItem(tr("Release servers..."), osUser2));
   Add(new cOsdItem(tr("Backups & rollback..."), osUser3));
+  Add(new cOsdItem(tr("System functions..."), osUser4));
   AddSection(tr("General"));
   Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &config.HideMainMenuEntry));
   AddSection(tr("Automatic"));
@@ -760,6 +891,7 @@ eOSState cMenuSetupVdrsternelec::ProcessKey(eKeys Key)
     case osUser1: return AddSubMenu(new cMenuUpdateMain);
     case osUser2: return AddSubMenu(new cMenuServers);
     case osUser3: return AddSubMenu(new cMenuBackups);
+    case osUser4: return AddSubMenu(new cMenuSystem);
     default: break;
     }
   if (config.AutoCheck != oldAutoCheck || config.RebootMode != oldRebootMode) {
