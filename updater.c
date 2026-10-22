@@ -939,7 +939,7 @@ void cUpdater::Action(void)
           cMutexLock MutexLock(&mutex);
           if (!checkRequested && !installRequested) {
              time_t now = time(NULL);
-             if (PluginConfig.CheckInterval > 0 && nextAutoCheck && now >= nextAutoCheck && state != usDownloading)
+             if (PluginConfig.AutoCheck && nextAutoCheck && now >= nextAutoCheck && state != usDownloading)
                 automatic = true;
              else
                 condVar.TimedWait(mutex, 1000);
@@ -961,7 +961,7 @@ void cUpdater::Action(void)
         else if (check) {
            DoCheck(automatic);
            cMutexLock MutexLock(&mutex);
-           if (PluginConfig.CheckInterval > 0) {
+           if (PluginConfig.AutoCheck) {
               bool failed = state == usError;
               nextAutoCheck = time(NULL) + (failed ? CHECK_RETRY_DELAY : PluginConfig.CheckInterval * 3600);
               }

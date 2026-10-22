@@ -24,7 +24,8 @@ enum eRebootMode { rmManual, rmIdle, rmModes };
 class cPluginConfig {
 public:
   int HideMainMenuEntry;
-  int CheckInterval;        ///< hours, 0 = no automatic check
+  int AutoCheck;            ///< check for updates automatically (opt-in, default off)
+  int CheckInterval;        ///< hours between automatic checks
   int Notify;               ///< show an OSD message if an update is available
   int AutoDownload;         ///< download an available update automatically
   int RebootMode;           ///< eRebootMode

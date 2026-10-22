@@ -1,6 +1,15 @@
 VDR Plugin 'vdrsternelec' Revision History
 -------------------------------------------
 
+2026-10-22: Version 0.4.0
+
+- The automatic check for updates is opt-in now (new setup option "Check for
+  updates automatically", default off). Before, the plugin contacted the
+  configured servers (by default the GitHub API) every 24 hours without any
+  user action. Without the option, servers are only accessed when the user
+  checks for updates or installs one. The check interval, notifications and
+  automatic downloads are only shown and used if the option is enabled.
+
 2026-10-21: Version 0.3.1
 
 - Fixed: the build date of releases from a releases.json was shown two hours

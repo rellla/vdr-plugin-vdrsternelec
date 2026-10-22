@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: vdr-vdrsternelec 0.3.1\n"
+"Project-Id-Version: vdr-vdrsternelec 0.4.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
 "POT-Creation-Date: 2026-10-21 17:30+0200\n"
 "PO-Revision-Date: 2026-10-21 17:30+0200\n"
@@ -238,8 +238,6 @@ msgstr "Hauptmenüeintrag verstecken"
 msgid "Check interval (h)"
 msgstr "Prüfintervall (h)"
 
-msgid "off"
-msgstr "aus"
 
 msgid "Notify about new releases"
 msgstr "Über neue Versionen informieren"
@@ -394,3 +392,6 @@ msgstr "Server nicht gefunden"
 
 msgid "Update"
 msgstr "Update"
+
+msgid "Check for updates automatically"
+msgstr "Automatisch nach Updates suchen"

@@ -93,6 +93,7 @@ protected:
   virtual void Store(void) override;
 public:
   cMenuSetupVdrsternelec(void);
+  virtual eOSState ProcessKey(eKeys Key) override;
   };
 
 #endif //__VDRSTERNELEC_MENU_H

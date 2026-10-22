@@ -24,6 +24,7 @@ cServerList ServerList;
 cPluginConfig::cPluginConfig(void)
 {
   HideMainMenuEntry = 0;
+  AutoCheck = 0; // no network access without user action, unless enabled
   CheckInterval = 24;
   Notify = 1;
   AutoDownload = 0;
@@ -42,7 +43,8 @@ cPluginConfig::cPluginConfig(void)
 bool cPluginConfig::SetupParse(const char *Name, const char *Value)
 {
   if      (!strcasecmp(Name, "HideMainMenuEntry")) HideMainMenuEntry = atoi(Value);
-  else if (!strcasecmp(Name, "CheckInterval"))     CheckInterval = constrain(atoi(Value), 0, 24 * 7);
+  else if (!strcasecmp(Name, "AutoCheck"))         AutoCheck = atoi(Value);
+  else if (!strcasecmp(Name, "CheckInterval"))     CheckInterval = constrain(atoi(Value), 1, 24 * 7);
   else if (!strcasecmp(Name, "Notify"))            Notify = atoi(Value);
   else if (!strcasecmp(Name, "AutoDownload"))      AutoDownload = atoi(Value);
   else if (!strcasecmp(Name, "RebootMode"))        RebootMode = constrain(atoi(Value), 0, rmModes - 1);

@@ -543,11 +543,16 @@ cMenuSetupVdrsternelec::cMenuSetupVdrsternelec(void)
 
 void cMenuSetupVdrsternelec::Set(void)
 {
+  int current = Current();
   Clear();
   Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &config.HideMainMenuEntry));
-  Add(new cMenuEditIntItem(tr("Check interval (h)"), &config.CheckInterval, 0, 24 * 7, tr("off")));
-  Add(new cMenuEditBoolItem(tr("Notify about new releases"), &config.Notify));
-  Add(new cMenuEditBoolItem(tr("Download new releases automatically"), &config.AutoDownload));
+  // opt-in: without it the plugin only accesses the servers on user request
+  Add(new cMenuEditBoolItem(tr("Check for updates automatically"), &config.AutoCheck));
+  if (config.AutoCheck) {
+     Add(new cMenuEditIntItem(cString::sprintf("  %s", tr("Check interval (h)")), &config.CheckInterval, 1, 24 * 7));
+     Add(new cMenuEditBoolItem(cString::sprintf("  %s", tr("Notify about new releases")), &config.Notify));
+     Add(new cMenuEditBoolItem(cString::sprintf("  %s", tr("Download new releases automatically")), &config.AutoDownload));
+     }
   Add(new cMenuEditStraItem(tr("Reboot to install"), &config.RebootMode, rmModes, rebootModes));
   Add(new cMenuEditIntItem(tr("Idle time before reboot (min)"), &config.IdleMinutes, 1, 24 * 60));
   Add(new cMenuEditBoolItem(tr("Require checksum"), &config.RequireChecksum));
@@ -557,6 +562,20 @@ void cMenuSetupVdrsternelec::Set(void)
   Add(new cMenuEditStrItem(tr("Reboot command"), config.RebootCommand, sizeof(config.RebootCommand), UrlChars));
   Add(new cMenuEditStrItem(tr("U-Boot board"), config.Board, sizeof(config.Board), UrlChars));
   Add(new cMenuEditStrItem(tr("Architecture (empty = auto)"), config.Arch, sizeof(config.Arch), UrlChars));
+  if (current >= 0 && current < Count())
+     SetCurrent(Get(current));
+}
+
+eOSState cMenuSetupVdrsternelec::ProcessKey(eKeys Key)
+{
+  int oldAutoCheck = config.AutoCheck;
+  eOSState state = cMenuSetupPage::ProcessKey(Key);
+  if (config.AutoCheck != oldAutoCheck) {
+     // show or hide the options of the automatic check
+     Set();
+     Display();
+     }
+  return state;
 }
 
 void cMenuSetupVdrsternelec::Store(void)
@@ -565,6 +584,7 @@ void cMenuSetupVdrsternelec::Store(void)
   strn0cpy(config.LastNotified, PluginConfig.LastNotified, sizeof(config.LastNotified));
   PluginConfig = config;
   SetupStore("HideMainMenuEntry", config.HideMainMenuEntry);
+  SetupStore("AutoCheck", config.AutoCheck);
   SetupStore("CheckInterval", config.CheckInterval);
   SetupStore("Notify", config.Notify);
   SetupStore("AutoDownload", config.AutoDownload);

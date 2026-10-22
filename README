@@ -181,13 +181,17 @@ Setup options
 -------------
 
   Hide main menu entry        Hide the plugin's entry in VDR's main menu.
-  Check interval (h)          Check for new releases every n hours
-                              (0 = off). The first check is done 5 minutes
-                              after VDR has started.
-  Notify about new releases   Show an OSD message when the automatic check
-                              finds a new release (once per release).
-  Download new releases       Download a new release found by the automatic
-  automatically               check into the update directory.
+  Check for updates           Check the servers for new releases
+  automatically               automatically (default: off, see "Network
+                              access" below). The following three options
+                              are only shown if this is enabled:
+    Check interval (h)        Hours between the checks. The first check is
+                              done 5 minutes after VDR has started (or right
+                              after enabling the option).
+    Notify about new          Show an OSD message when the automatic check
+    releases                  finds a new release (once per release).
+    Download new releases     Download a new release found by the automatic
+    automatically             check into the update directory.
   Reboot to install           "manually": reboot via the OSD or SVDRP.
                               "automatically when idle": reboot as soon as
                               an update is waiting and VDR is idle (no
@@ -206,6 +210,22 @@ Setup options
                               images in releases.json (e.g. "odroid-c2").
                               Empty lists all boards.
   Architecture                Overrides the device string from os-release.
+
+
+Network access
+--------------
+
+By default the plugin does not access any server on its own. Servers are only
+contacted when the user checks for updates (OSD, SVDRP CHECK) or installs a
+release. Only the automatic check, which has to be enabled in the setup
+("Check for updates automatically"), contacts the servers periodically.
+
+The plugin only connects to the servers in the server list. Without a
+servers.conf this is the GitHub API (api.github.com) for the releases of
+Zabrimus/VDRSternELEC, and the downloads come from github.com. Requests carry
+the User-Agent "vdr-plugin-vdrsternelec/<version>"; nothing else about the
+system is sent (the device string is only used locally to select the files).
+To use only local sources, replace the default server in the server list.
 
 
 SVDRP commands
