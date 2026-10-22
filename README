@@ -180,11 +180,18 @@ the SVDRP command LIST.
 Setup options
 -------------
 
+All functions of the plugin are also available from the plugin's setup page
+(Setup -> Plugins -> vdrsternelec), so the main menu entry can be hidden. The
+first three lines open the update menu, the server list and the backup menu.
+
+General
   Hide main menu entry        Hide the plugin's entry in VDR's main menu.
+
+Automatic
   Check for updates           Check the servers for new releases
   automatically               automatically (default: off, see "Network
-                              access" below). The following three options
-                              are only shown if this is enabled:
+                              access" below). The following options are only
+                              shown if this is enabled:
     Check interval (h)        Hours between the checks. The first check is
                               done 5 minutes after VDR has started (or right
                               after enabling the option).
@@ -198,18 +205,104 @@ Setup options
                               recording, no timer within the next 15 minutes,
                               no OSD open, no key pressed for the idle time,
                               no plugin busy).
-  Idle time before reboot     See above.
+    Idle time before reboot   See above.
+    (min)
+  Automatic actions from      Time window for the automatic download and the
+  Automatic actions until     automatic reboot (e.g. 02:00 - 05:00; the window
+                              may span midnight). Equal times mean "always".
+                              Manual actions are not restricted.
+  Download limit while        Limit the download rate (KB/s) while VDR is
+  recording (KB/s)            recording. 0 = no limit.
+
+Safety
   Require checksum            Refuse update files without checksum.
+  Allow change of major       Also offer releases of another major version
+  version                     (e.g. 12 -> 13). Default: off, see "Version
+                              jumps" below.
+  Backup before update        Create a backup of the configuration before
+                              rebooting into an update.
+  Backup contents             VDR configuration (/storage/.config/vdropt)
+                              or complete /storage/.config.
+  Number of backups           Number of backups to keep.
+  Older versions for          Number of installed update images to keep for
+  rollback                    a rollback (0 = none).
+  Update installed addons     Update installed VDR*ELEC addons together with
+                              the system (see "Addons" below).
+
+Display
   Show older releases         Also list releases older than the installed
                               one (downgrade).
   Show pre-releases           Also list GitHub pre-releases.
+
+Expert
   Update directory            Where update files are stored
                               (default: /storage/.update).
+  Backup directory            Default: /storage/backup/vdrsternelec
   Reboot command              Command used to reboot (default: reboot).
   U-Boot board                For u-boot based devices with board specific
                               images in releases.json (e.g. "odroid-c2").
                               Empty lists all boards.
-  Architecture                Overrides the device string from os-release.
+  Architecture (empty =       Overrides the device string from os-release.
+  auto)
+
+
+Version jumps
+-------------
+
+A change of the major version (e.g. LibreELEC 12 to 13) may need manual work
+(new configuration, other addons). Releases of another major version than the
+installed one (VERSION_ID in os-release) are therefore not listed, never
+selected by the automatic download and refused by INSTALL, unless "Allow
+change of major version" is enabled.
+
+
+Backups and rollback
+--------------------
+
+"Backups & rollback..." (main menu and setup page) shows:
+
+  - "Create backup now": a tar.gz of the configured backup scope in the
+    backup directory (also SVDRP BACKUP).
+  - The existing backups. OK restores the selected backup after a
+    confirmation: VDR is stopped, the backed up directories are replaced by
+    the content of the backup, and VDR is started again. The restore runs as
+    a separate systemd unit, so it is not affected by stopping VDR. Yellow
+    deletes a backup.
+  - The kept update images ("Older versions for rollback"). OK copies the image back
+    into the update directory (with its checksum) and it is installed on the
+    next reboot - a rollback to the previous version. Kept images are hard
+    links, so they need no extra space as long as the update file exists.
+
+If "Backup before update" is enabled, a backup is made right before the
+reboot into an update. If it fails, the reboot is not done.
+
+
+After the reboot
+----------------
+
+LibreELEC keeps the old system if it can't install an update (e.g. because
+the file is damaged). After the reboot the plugin compares the installed
+version with the one it rebooted for and shows "Update to ... installed" or
+"Update to ... NOT installed". The result is shown in the menu ("Last
+update") and via SVDRP STAT. If the update was not installed, staged addons
+are discarded.
+
+
+Addons
+------
+
+If "Update installed addons" is enabled, the addons of the selected release that are
+already installed are downloaded together with the update (only those
+matching the release's major version):
+
+  - addon.cefbrowser    -> /storage/browser
+  - channellogos        -> /storage
+  - other addons        -> /storage/.kodi/addons
+
+Archives are checked before installing (all files below the addon's
+directory, no ".." in paths). Driver addons (driver.*) are installed right
+before the reboot, all others after the reboot if the update was installed.
+Addons that are not installed are never installed by the plugin.
 
 
 Network access
@@ -237,7 +330,9 @@ SVDRP commands
   INSTALL <number>  Download and verify release <number> (see LIST).
   CANCEL            Cancel a running download.
   DISCARD           Remove a downloaded, not yet installed update.
-  REBOOT            Reboot now to install a downloaded update.
+  REBOOT            Reboot now to install a downloaded update (backup and
+                    driver addons first, if enabled).
+  BACKUP            Create a backup now.
   SERVERS           List the configured servers.
 
 Example:
@@ -255,4 +350,5 @@ Notes
   - Only one update file is kept in the update directory, other update files
     found there are removed when a new update has been downloaded.
   - While a download is running, VDR does not shut down automatically.
-  - A backup of /storage before updating is always a good idea.
+  - A backup only covers the configuration. A full backup of /storage
+    (LibreELEC settings) before a major upgrade is still a good idea.

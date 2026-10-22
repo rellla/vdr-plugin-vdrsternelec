@@ -12,6 +12,7 @@
 #define __VDRSTERNELEC_MENU_H
 
 #include "config.h"
+#include "maintenance.h"
 #include "parsers.h"
 #include <string>
 #include <vector>
@@ -82,13 +83,32 @@ public:
   virtual eOSState ProcessKey(eKeys Key) override;
   };
 
+// --- cMenuBackups --------------------------------------------------------------------
+
+class cMenuBackups : public cOsdMenu {
+private:
+  std::vector<struct cBackupInfo> backups;
+  std::vector<cReleaseInfo> images;
+  time_t lastRefresh;
+  std::string lastState;
+  void Set(void);
+  eOSState Restore(int Index);
+  eOSState Rollback(int Index);
+  eOSState Delete(int Index);
+public:
+  cMenuBackups(void);
+  virtual eOSState ProcessKey(eKeys Key) override;
+  };
+
 // --- cMenuSetupVdrsternelec --------------------------------------------------------
 
 class cMenuSetupVdrsternelec : public cMenuSetupPage {
 private:
   cPluginConfig config;
   const char *rebootModes[rmModes];
+  const char *backupScopes[2];
   void Set(void);
+  void AddSection(const char *Title);
 protected:
   virtual void Store(void) override;
 public:

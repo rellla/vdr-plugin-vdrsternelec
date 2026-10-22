@@ -1,6 +1,27 @@
 VDR Plugin 'vdrsternelec' Revision History
 -------------------------------------------
 
+2026-10-22: Version 0.5.0
+
+- All functions are available from the setup page (update menu, release
+  servers, backups), so the main menu entry can be hidden. The setup page is
+  grouped into sections.
+- Backups: a backup of the VDR configuration (or of /storage/.config) is made
+  before rebooting into an update (option), or on request in the OSD or via
+  SVDRP BACKUP. Backups can be restored and deleted in the new menu
+  "Backups & rollback"; the restore stops and restarts VDR.
+- Rollback: the installed update images are kept (hard links, option "Older
+  versions for rollback") and can be installed again from the backup menu.
+- After the reboot, the plugin detects whether the update was installed and
+  shows the result ("Last update" in the menu and in SVDRP STAT).
+- Version jumps: releases of another major version are hidden and refused
+  unless "Allow change of major version" is enabled.
+- New option to limit the download rate while recording.
+- New time window for the automatic download and the automatic reboot.
+- Installed VDR*ELEC addons (e.g. cefbrowser, channellogos, yt-dlp, driver
+  addons) are updated together with the system (option). Archives are checked
+  before installing.
+
 2026-10-22: Version 0.4.0
 
 - The automatic check for updates is opt-in now (new setup option "Check for

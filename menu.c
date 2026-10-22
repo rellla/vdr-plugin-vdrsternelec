@@ -113,6 +113,9 @@ void cMenuUpdateMain::Set(void)
   else if (!message.empty())
      AddInfo(state == cUpdater::usError ? tr("Error") : tr("File"), message);
   AddInfo(tr("Last check"), lastCheck ? std::string(*DayDateTime(lastCheck)) : std::string(tr("never")));
+  std::string result = Updater.LastResult();
+  if (!result.empty())
+     AddInfo(tr("Last update"), result);
   Add(new cOsdItem("", osUnknown, false));
   Add(new cOsdItem(tr("Check for updates"), osUser1));
   if (state == cUpdater::usDownloading || state == cUpdater::usVerifying)
@@ -122,6 +125,7 @@ void cMenuUpdateMain::Set(void)
      Add(new cOsdItem(tr("Discard downloaded update"), osUser3));
      }
   Add(new cOsdItem(tr("Release servers..."), osUser5));
+  Add(new cOsdItem(tr("Backups & rollback..."), osUser6));
   std::vector<cServerResult> results = Updater.Results();
   if (!results.empty()) {
      Add(new cOsdItem(cString::sprintf("--- %s ---", tr("Available releases")), osUnknown, false));
@@ -158,7 +162,7 @@ eOSState cMenuUpdateMain::Reboot(void)
      Set();
      return osContinue;
      }
-  Skins.Message(mtInfo, tr("Rebooting..."));
+  Skins.Message(mtInfo, PluginConfig.BackupBeforeUpdate ? tr("Creating backup, then rebooting...") : tr("Rebooting..."));
   return osEnd;
 }
 
@@ -197,6 +201,7 @@ eOSState cMenuUpdateMain::ProcessKey(eKeys Key)
     case osUser3: return Discard();
     case osUser4: return CancelDownload();
     case osUser5: return AddSubMenu(new cMenuServers);
+    case osUser6: return AddSubMenu(new cMenuBackups);
     default: break;
     }
   if (state == osUnknown) {
@@ -531,6 +536,154 @@ eOSState cMenuServerEdit::ProcessKey(eKeys Key)
   return state;
 }
 
+// --- cMenuBackups --------------------------------------------------------------------
+
+class cIndexItem : public cOsdItem {
+private:
+  int index;
+public:
+  cIndexItem(const char *Text, int Index) : cOsdItem(Text), index(Index) {}
+  int Index(void) const { return index; }
+  };
+
+#define IMAGE_INDEX_BASE 10000
+
+cMenuBackups::cMenuBackups(void)
+:cOsdMenu(tr("Backups & rollback"), 18, 22)
+{
+  lastRefresh = 0;
+  Set();
+  SetHelp(tr("Button$Backup"), NULL, tr("Button$Delete"), NULL);
+}
+
+void cMenuBackups::Set(void)
+{
+  int current = Current();
+  Clear();
+  backups = ListBackups(PluginConfig.BackupDir);
+  images = Updater.RollbackImages();
+  lastState = Updater.StateText();
+  Add(new cOsdItem(cString::sprintf("%s:\t%s", tr("Status"), lastState.c_str()), osUnknown, false));
+  Add(new cOsdItem(tr("Create backup now"), osUser1));
+  Add(new cOsdItem(cString::sprintf("--- %s ---", tr("Backups (OK = restore)")), osUnknown, false));
+  if (backups.empty())
+     Add(new cOsdItem(tr("No backups"), osUnknown, false));
+  for (size_t i = 0; i < backups.size(); i++) {
+      const cBackupInfo &b = backups[i];
+      std::string reason = b.reason.empty() ? tr("unknown") : b.reason;
+      Add(new cIndexItem(cString::sprintf("%s\t%s\t%s", *DayDateTime(b.created), FormatSize(b.size).c_str(), reason.c_str()), int(i)));
+      }
+  Add(new cOsdItem(cString::sprintf("--- %s ---", tr("Rollback (OK = install)")), osUnknown, false));
+  if (images.empty())
+     Add(new cOsdItem(tr("No update files kept"), osUnknown, false));
+  for (size_t i = 0; i < images.size(); i++) {
+      const cReleaseInfo &r = images[i];
+      time_t t;
+      bool hasTime;
+      std::string date = ReleaseBuildDate(r, t, hasTime) ? FormatBuildDate(t, hasTime) : "";
+      eCompareResult c = Updater.Compare(r);
+      std::string label = r.label + (c == crSame ? std::string(" (") + tr("installed") + ")" : "");
+      Add(new cIndexItem(cString::sprintf("%s\t%s\t%s", date.c_str(), FormatSize(r.size).c_str(), label.c_str()), IMAGE_INDEX_BASE + int(i)));
+      }
+  if (current >= 0 && current < Count())
+     SetCurrent(Get(current));
+  Display();
+  lastRefresh = time(NULL);
+}
+
+eOSState cMenuBackups::Restore(int Index)
+{
+  if (Index < 0 || Index >= int(backups.size()))
+     return osContinue;
+  if (Updater.Busy()) {
+     Skins.Message(mtError, tr("Please wait until the current action is finished"));
+     return osContinue;
+     }
+  const cBackupInfo &b = backups[Index];
+  if (!Interface->Confirm(cString::sprintf(tr("Restore backup from %s? VDR will be restarted."), *DayDateTime(b.created))))
+     return osContinue;
+  if ((cRecordControls::Active() || RecordingsHandler.Active()) && !Interface->Confirm(tr("Recording - restart VDR anyway?")))
+     return osContinue;
+  std::string err;
+  if (!StartRestore(b, false, PluginConfig.WorkDir, Updater.StateFile(), err)) {
+     Skins.Message(mtError, err.c_str());
+     return osContinue;
+     }
+  Skins.Message(mtInfo, tr("Restoring backup, VDR will be restarted..."));
+  return osEnd;
+}
+
+eOSState cMenuBackups::Rollback(int Index)
+{
+  if (Index < 0 || Index >= int(images.size()))
+     return osContinue;
+  const cReleaseInfo &r = images[Index];
+  if (Updater.Compare(r) == crSame) {
+     Skins.Message(mtInfo, tr("This version is installed"));
+     return osContinue;
+     }
+  if (!Interface->Confirm(cString::sprintf(tr("Install %s again?"), r.label.c_str())))
+     return osContinue;
+  std::string err;
+  if (!Updater.RequestInstall(r, err)) {
+     Skins.Message(mtError, err.c_str());
+     return osContinue;
+     }
+  Skins.Message(mtInfo, tr("Update file is prepared - reboot to install. Restore a backup if needed."));
+  return osContinue;
+}
+
+eOSState cMenuBackups::Delete(int Index)
+{
+  if (Index >= 0 && Index < int(backups.size())) {
+     if (Interface->Confirm(tr("Delete backup?"))) {
+        DeleteBackup(backups[Index]);
+        Set();
+        }
+     }
+  else if (Index >= IMAGE_INDEX_BASE && Index - IMAGE_INDEX_BASE < int(images.size())) {
+     const cReleaseInfo &r = images[Index - IMAGE_INDEX_BASE];
+     if (Interface->Confirm(tr("Delete kept update file?"))) {
+        std::string path = LocalPath(r.url);
+        unlink(path.c_str());
+        unlink((path + ".sha256").c_str());
+        Set();
+        }
+     }
+  return osContinue;
+}
+
+eOSState cMenuBackups::ProcessKey(eKeys Key)
+{
+  eOSState state = cOsdMenu::ProcessKey(Key);
+  if (HasSubMenu())
+     return state;
+  if (state == osUser1 || (state == osUnknown && Key == kRed)) {
+     std::string err;
+     if (!Updater.RequestBackup(err))
+        Skins.Message(mtError, err.c_str());
+     Set();
+     return osContinue;
+     }
+  if (state == osUnknown) {
+     cIndexItem *item = dynamic_cast<cIndexItem *>(Get(Current()));
+     switch (Key) {
+       case kOk:
+            if (item)
+               return item->Index() >= IMAGE_INDEX_BASE ? Rollback(item->Index() - IMAGE_INDEX_BASE) : Restore(item->Index());
+            return osContinue;
+       case kYellow:
+            if (item)
+               return Delete(item->Index());
+            return osContinue;
+       default: break;
+       }
+     }
+  if (Key == kNone && time(NULL) - lastRefresh >= 2 && Updater.StateText() != lastState)
+     Set(); // e.g. the backup is finished
+  return state;
+}
+
 // --- cMenuSetupVdrsternelec --------------------------------------------------------------
 
 cMenuSetupVdrsternelec::cMenuSetupVdrsternelec(void)
@@ -538,14 +691,27 @@ cMenuSetupVdrsternelec::cMenuSetupVdrsternelec(void)
   config = PluginConfig;
   rebootModes[rmManual] = tr("manually");
   rebootModes[rmIdle] = tr("automatically when idle");
+  backupScopes[bsVdr] = tr("VDR configuration");
+  backupScopes[bsConfig] = tr("complete /storage/.config");
   Set();
+}
+
+void cMenuSetupVdrsternelec::AddSection(const char *Title)
+{
+  Add(new cOsdItem(cString::sprintf("--- %s ---", Title), osUnknown, false));
 }
 
 void cMenuSetupVdrsternelec::Set(void)
 {
   int current = Current();
   Clear();
+  // all functions are available here, so the main menu entry can be hidden
+  Add(new cOsdItem(cString::sprintf("%s...", tr("VDR*ELEC update")), osUser1));
+  Add(new cOsdItem(tr("Release servers..."), osUser2));
+  Add(new cOsdItem(tr("Backups & rollback..."), osUser3));
+  AddSection(tr("General"));
   Add(new cMenuEditBoolItem(tr("Hide main menu entry"), &config.HideMainMenuEntry));
+  AddSection(tr("Automatic"));
   // opt-in: without it the plugin only accesses the servers on user request
   Add(new cMenuEditBoolItem(tr("Check for updates automatically"), &config.AutoCheck));
   if (config.AutoCheck) {
@@ -554,11 +720,25 @@ void cMenuSetupVdrsternelec::Set(void)
      Add(new cMenuEditBoolItem(cString::sprintf("  %s", tr("Download new releases automatically")), &config.AutoDownload));
      }
   Add(new cMenuEditStraItem(tr("Reboot to install"), &config.RebootMode, rmModes, rebootModes));
-  Add(new cMenuEditIntItem(tr("Idle time before reboot (min)"), &config.IdleMinutes, 1, 24 * 60));
+  if (config.RebootMode == rmIdle)
+     Add(new cMenuEditIntItem(cString::sprintf("  %s", tr("Idle time before reboot (min)")), &config.IdleMinutes, 1, 24 * 60));
+  Add(new cMenuEditTimeItem(tr("Automatic actions from"), &config.WindowStart));
+  Add(new cMenuEditTimeItem(tr("Automatic actions until"), &config.WindowEnd));
+  Add(new cMenuEditIntItem(tr("Download limit while recording (KB/s)"), &config.ThrottleKBps, 0, 1000000, tr("none")));
+  AddSection(tr("Safety"));
   Add(new cMenuEditBoolItem(tr("Require checksum"), &config.RequireChecksum));
+  Add(new cMenuEditBoolItem(tr("Allow change of major version"), &config.AllowMajorUpgrade));
+  Add(new cMenuEditBoolItem(tr("Backup before update"), &config.BackupBeforeUpdate));
+  Add(new cMenuEditStraItem(tr("Backup contents"), &config.BackupScope, 2, backupScopes));
+  Add(new cMenuEditIntItem(tr("Number of backups"), &config.BackupKeep, 1, 50));
+  Add(new cMenuEditIntItem(tr("Older versions for rollback"), &config.KeepImages, 0, 5, tr("none")));
+  Add(new cMenuEditBoolItem(tr("Update installed addons"), &config.UpdateAddons));
+  AddSection(tr("Display"));
   Add(new cMenuEditBoolItem(tr("Show older releases"), &config.ShowOlder));
   Add(new cMenuEditBoolItem(tr("Show pre-releases"), &config.ShowPrerelease));
+  AddSection(tr("Expert"));
   Add(new cMenuEditStrItem(tr("Update directory"), config.UpdateDir, sizeof(config.UpdateDir), UrlChars));
+  Add(new cMenuEditStrItem(tr("Backup directory"), config.BackupDir, sizeof(config.BackupDir), UrlChars));
   Add(new cMenuEditStrItem(tr("Reboot command"), config.RebootCommand, sizeof(config.RebootCommand), UrlChars));
   Add(new cMenuEditStrItem(tr("U-Boot board"), config.Board, sizeof(config.Board), UrlChars));
   Add(new cMenuEditStrItem(tr("Architecture (empty = auto)"), config.Arch, sizeof(config.Arch), UrlChars));
@@ -568,10 +748,22 @@ void cMenuSetupVdrsternelec::Set(void)
 
 eOSState cMenuSetupVdrsternelec::ProcessKey(eKeys Key)
 {
+  if (HasSubMenu()) {
+     // keys unknown to a submenu must not store and close the setup page
+     eOSState state = cOsdMenu::ProcessKey(Key);
+     return state == osUnknown ? osContinue : state;
+     }
   int oldAutoCheck = config.AutoCheck;
+  int oldRebootMode = config.RebootMode;
   eOSState state = cMenuSetupPage::ProcessKey(Key);
-  if (config.AutoCheck != oldAutoCheck) {
-     // show or hide the options of the automatic check
+  switch (state) {
+    case osUser1: return AddSubMenu(new cMenuUpdateMain);
+    case osUser2: return AddSubMenu(new cMenuServers);
+    case osUser3: return AddSubMenu(new cMenuBackups);
+    default: break;
+    }
+  if (config.AutoCheck != oldAutoCheck || config.RebootMode != oldRebootMode) {
+     // show or hide the depending options
      Set();
      Display();
      }
@@ -582,6 +774,8 @@ void cMenuSetupVdrsternelec::Store(void)
 {
   // LastNotified is maintained by the updater, don't overwrite it
   strn0cpy(config.LastNotified, PluginConfig.LastNotified, sizeof(config.LastNotified));
+  if (config.WindowStart == config.WindowEnd)
+     config.WindowStart = config.WindowEnd = 0;
   PluginConfig = config;
   SetupStore("HideMainMenuEntry", config.HideMainMenuEntry);
   SetupStore("AutoCheck", config.AutoCheck);
@@ -596,5 +790,15 @@ void cMenuSetupVdrsternelec::Store(void)
   SetupStore("UpdateDir", config.UpdateDir);
   SetupStore("RebootCommand", config.RebootCommand);
   SetupStore("Board", config.Board);
+  SetupStore("AllowMajorUpgrade", config.AllowMajorUpgrade);
+  SetupStore("ThrottleKBps", config.ThrottleKBps);
+  SetupStore("WindowStart", config.WindowStart);
+  SetupStore("WindowEnd", config.WindowEnd);
+  SetupStore("BackupBeforeUpdate", config.BackupBeforeUpdate);
+  SetupStore("BackupScope", config.BackupScope);
+  SetupStore("BackupKeep", config.BackupKeep);
+  SetupStore("KeepImages", config.KeepImages);
+  SetupStore("UpdateAddons", config.UpdateAddons);
+  SetupStore("BackupDir", config.BackupDir);
   SetupStore("Arch", config.Arch);
 }

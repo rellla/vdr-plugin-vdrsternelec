@@ -25,7 +25,7 @@
 #error "VDR-2.4.0 API version or greater is required!"
 #endif
 
-static const char *VERSION        = "0.4.0";
+static const char *VERSION        = "0.5.0";
 static const char *DESCRIPTION    = trNOOP("Update VDR*ELEC from release servers");
 static const char *MAINMENUENTRY  = trNOOP("VDR*ELEC update");
 
@@ -37,6 +37,7 @@ private:
   const char *osRelease;
   time_t startTime;
   time_t lastIdleCheck;
+  time_t lastRecordingCheck;
   bool SystemIdle(void);
 public:
   cPluginVdrsternelec(void);
@@ -63,6 +64,7 @@ cPluginVdrsternelec::cPluginVdrsternelec(void)
   osRelease = DEFAULT_OS_RELEASE;
   startTime = 0;
   lastIdleCheck = 0;
+  lastRecordingCheck = 0;
 }
 
 cPluginVdrsternelec::~cPluginVdrsternelec()
@@ -154,10 +156,15 @@ void cPluginVdrsternelec::MainThreadHook(void)
      SetupStore("LastNotified", PluginConfig.LastNotified);
      }
   time_t now = time(NULL);
+  if (now != lastRecordingCheck) {
+     // for the download limit while recording
+     lastRecordingCheck = now;
+     Updater.SetRecording(cRecordControls::Active());
+     }
   if (now - lastIdleCheck < IDLE_CHECK_INTERVAL)
      return;
   lastIdleCheck = now;
-  if (PluginConfig.RebootMode == rmIdle && Updater.UpdatePending() && Updater.AutoRebootAllowed() && SystemIdle()) {
+  if (PluginConfig.RebootMode == rmIdle && Updater.UpdatePending() && Updater.AutoRebootAllowed() && cUpdater::InWindow() && SystemIdle()) {
      std::string err;
      isyslog_plg("system is idle, rebooting to install the update");
      if (!Updater.Reboot(err))
@@ -200,7 +207,10 @@ const char **cPluginVdrsternelec::SVDRPHelpPages(void)
     "DISCARD\n"
     "    Remove a downloaded update that has not been installed yet.",
     "REBOOT\n"
-    "    Reboot now to install a downloaded update.",
+    "    Reboot now to install a downloaded update (after the backup and the\n"
+    "    installation of driver addons, if enabled).",
+    "BACKUP\n"
+    "    Create a backup of the configuration now.",
     "SERVERS\n"
     "    List the configured release servers.",
     NULL
@@ -220,7 +230,8 @@ cString cPluginVdrsternelec::SVDRPCommand(const char *Command, const char *Optio
      std::string built = InstalledBuildDate(info, t, hasTime) ? FormatBuildDate(t, hasTime) : "unknown";
      cReleaseInfo p = Updater.PendingRelease();
      std::string pendingBuilt = p.name.empty() ? "-" : ReleaseBuildDate(p, t, hasTime) ? FormatBuildDate(t, hasTime) : "unknown";
-     return cString::sprintf("Installed: %s\nBuild date: %s\nArchitecture: %s\nState: %s\nMessage: %s\nPending: %s\nPending build date: %s\nLast check: %s",
+     std::string result = Updater.LastResult();
+     return cString::sprintf("Installed: %s\nBuild date: %s\nArchitecture: %s\nState: %s\nMessage: %s\nPending: %s\nPending build date: %s\nLast check: %s\nLast update: %s",
                              info.version.empty() ? "unknown" : info.version.c_str(),
                              built.c_str(),
                              info.arch.empty() ? "unknown" : info.arch.c_str(),
@@ -228,7 +239,8 @@ cString cPluginVdrsternelec::SVDRPCommand(const char *Command, const char *Optio
                              message.empty() ? "-" : message.c_str(),
                              pending.empty() ? "-" : pending.c_str(),
                              pendingBuilt.c_str(),
-                             last ? *DayDateTime(last) : "never");
+                             last ? *DayDateTime(last) : "never",
+                             result.empty() ? "-" : result.c_str());
      }
   if (!strcasecmp(Command, "CHECK")) {
      Updater.RequestCheck();
@@ -298,7 +310,15 @@ cString cPluginVdrsternelec::SVDRPCommand(const char *Command, const char *Optio
         ReplyCode = 550;
         return err.c_str();
         }
-     return "Rebooting";
+     return "Preparing reboot (backup, addons), then rebooting";
+     }
+  if (!strcasecmp(Command, "BACKUP")) {
+     std::string err;
+     if (!Updater.RequestBackup(err)) {
+        ReplyCode = 550;
+        return err.c_str();
+        }
+     return "Backup started";
      }
   if (!strcasecmp(Command, "SERVERS")) {
      std::vector<cServerEntry> servers = ServerList.Get();

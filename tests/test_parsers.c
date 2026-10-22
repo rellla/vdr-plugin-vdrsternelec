@@ -445,6 +445,78 @@ static void TestBuildDate(void)
   CHECK(!ReleaseBuildDate(r, t, hasTime));
 }
 
+static void TestAddons(void)
+{
+  std::string id, ver;
+  CHECK(ParseAddonName("LE-RPi4.aarch64-addon.cefbrowser-12.80.7.2.zip", "RPi4.aarch64", id, ver));
+  CHECK_EQ(id, "addon.cefbrowser");
+  CHECK_EQ(ver, "12.80.7.2");
+  CHECK(ParseAddonName("LE-RPi4.aarch64-channellogos-12.80.7.1.tar.gz", "RPi4.aarch64", id, ver));
+  CHECK_EQ(id, "channellogos");
+  CHECK(ParseAddonName("CE-Amlogic-ng-Amlogic-ng.arm-driver.dvb.dvb-latest-20.5.0.zip", "Amlogic-ng.arm", id, ver));
+  CHECK_EQ(id, "driver.dvb.dvb-latest");
+  CHECK_EQ(ver, "20.5.0");
+  CHECK(ParseAddonName("LE-Generic.x86_64-yt-dlp-12.2.0.1.zip", "Generic.x86_64", id, ver));
+  CHECK_EQ(id, "yt-dlp");
+  CHECK(!ParseAddonName("LE-RPi4.aarch64-13.0-VDR-1016.tar", "RPi4.aarch64", id, ver));
+  CHECK(!ParseAddonName("LE-RPi5.aarch64-yt-dlp-12.2.0.1.zip", "RPi4.aarch64", id, ver));
+  CHECK(!ParseAddonName("LE-RPi4.aarch64-yt-dlp.zip", "RPi4.aarch64", id, ver));
+  CHECK(!ParseAddonName("LE-RPi4.aarch64-../evil-1.0.zip", "RPi4.aarch64", id, ver));
+  CHECK(!ParseAddonName("source.zip", "RPi4.aarch64", id, ver));
+  // Generic release: 12.2 and 13.0 images with addons for both in one tag
+  const char *json =
+    "{\"tag_name\": \"2026-10-16.1-LibreELEC-Generic-Release\", \"published_at\": \"2026-10-16T12:00:00Z\", \"assets\": [\n"
+    "  {\"name\": \"LE-Generic.x86_64-12.2-VDR-1016.tar\", \"browser_download_url\": \"u1\"},\n"
+    "  {\"name\": \"LE-Generic.x86_64-13.0-VDR-1016.tar\", \"browser_download_url\": \"u2\"},\n"
+    "  {\"name\": \"LE-Generic.x86_64-addon.cefbrowser-12.2.0.2.zip\", \"browser_download_url\": \"c1\", \"digest\": \"sha256:" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "\"},\n"
+    "  {\"name\": \"LE-Generic.x86_64-addon.cefbrowser-12.80.7.2.zip\", \"browser_download_url\": \"c2\"},\n"
+    "  {\"name\": \"LE-Generic.x86_64-addon.cefbrowser-12.80.7.2.zip.sha256\", \"browser_download_url\": \"c2s\"},\n"
+    "  {\"name\": \"LE-Generic.x86_64-channellogos-12.80.7.1.tar.gz\", \"browser_download_url\": \"l2\"},\n"
+    "  {\"name\": \"LE-Generic-legacy.x86_64-yt-dlp-12.80.7.1.zip\", \"browser_download_url\": \"other\"}]}";
+  std::vector<cReleaseInfo> r;
+  std::string err;
+  CHECK(ParseGithubReleases(json, "Generic.x86_64", "", "", r, err));
+  CHECK(r.size() == 2);
+  if (r.size() == 2) {
+     const cReleaseInfo &le12 = r[0].label.compare(0, 4, "12.2") == 0 ? r[0] : r[1];
+     const cReleaseInfo &le13 = r[0].label.compare(0, 4, "12.2") == 0 ? r[1] : r[0];
+     CHECK(le12.addons.size() == 1); // channellogos only exists in 12.80 (LE 13)
+     if (le12.addons.size() == 1) {
+        CHECK_EQ(le12.addons[0].version, "12.2.0.2");
+        CHECK_EQ(le12.addons[0].sha256, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        }
+     CHECK(le13.addons.size() == 2);
+     for (size_t i = 0; i < le13.addons.size(); i++) {
+         if (le13.addons[i].id == "addon.cefbrowser") {
+            CHECK_EQ(le13.addons[i].version, "12.80.7.2");
+            CHECK_EQ(le13.addons[i].sha256Url, "c2s");
+            }
+         else
+            CHECK_EQ(le13.addons[i].id, "channellogos");
+         }
+     }
+  // single version: belongs to the release
+  std::vector<cLocalFile> files(2);
+  files[0].name = "CE-Amlogic-ne.aarch64-20.5-VDR-0724.tar"; files[0].size = 1; files[0].mtime = 0;
+  files[1].name = "CE-Amlogic-ne-Amlogic-ne.aarch64-addon.cefbrowser-20.5.1.zip"; files[1].size = 2; files[1].mtime = 0;
+  r.clear();
+  CHECK(ParseLocalDirectory(files, "file:///x/", "Amlogic-ne.aarch64", "", "x", r));
+  CHECK(r.size() == 1 && r[0].addons.size() == 1 && r[0].addons[0].url == "file:///x/CE-Amlogic-ne-Amlogic-ne.aarch64-addon.cefbrowser-20.5.1.zip");
+  CHECK(MajorVersion("13.0-devel-20261020103000-abc1234") == 13);
+  CHECK(MajorVersion("20.5-VDR-0724") == 20);
+  CHECK(MajorVersion("12.2") == 12);
+  CHECK(MajorVersion("nightly") == -1);
+  CHECK(InTimeWindow(0, 0, 1234));
+  CHECK(InTimeWindow(300, 500, 300));
+  CHECK(InTimeWindow(300, 500, 459));
+  CHECK(!InTimeWindow(300, 500, 500));
+  CHECK(!InTimeWindow(300, 500, 1200));
+  CHECK(InTimeWindow(2300, 100, 2330));
+  CHECK(InTimeWindow(2300, 100, 30));
+  CHECK(!InTimeWindow(2300, 100, 100));
+  CHECK(!InTimeWindow(2300, 100, 1200));
+}
+
 static void TestHelpers(void)
 {
   CHECK_EQ(ParseSha256File("0123456789abcdef0123456789abcdef0123456789ABCDEF0123456789abcdef  LibreELEC.tar\n", "LibreELEC.tar"), "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
@@ -576,6 +648,7 @@ int main(void)
   TestSmbUrl();
   TestLocalJson();
   TestBuildDate();
+  TestAddons();
   TestHelpers();
   TestCompare();
   TestSort();

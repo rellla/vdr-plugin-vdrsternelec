@@ -66,7 +66,7 @@ endif
 
 ### The object files (add further files here):
 
-OBJS = $(PLUGIN).o config.o filesource.o http.o json.o menu.o parsers.o sha256.o updater.o
+OBJS = $(PLUGIN).o config.o filesource.o http.o json.o maintenance.o menu.o parsers.o sha256.o updater.o
 
 ### The main target:
 

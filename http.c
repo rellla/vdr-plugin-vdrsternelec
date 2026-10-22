@@ -44,9 +44,22 @@ static size_t StringWriter(char *Ptr, size_t Size, size_t NMemb, void *UserData)
   return n;
 }
 
+struct tFileSink {
+  FILE *file;
+  cHttpProgress *progress;
+  long long bytes;
+  };
+
 static size_t FileWriter(char *Ptr, size_t Size, size_t NMemb, void *UserData)
 {
-  return fwrite(Ptr, Size, NMemb, (FILE *)UserData) * Size;
+  tFileSink *s = (tFileSink *)UserData;
+  size_t n = fwrite(Ptr, Size, NMemb, s->file) * Size;
+  s->bytes += n;
+  // also report from here: libcurl calls the progress function less often,
+  // which is too coarse for limiting the download rate
+  if (s->progress && !s->progress->Progress(s->bytes, -1))
+     return 0; // abort
+  return n;
 }
 
 static int ProgressCallback(void *ClientP, curl_off_t DlTotal, curl_off_t DlNow, curl_off_t, curl_off_t)
@@ -148,8 +161,9 @@ bool HttpDownload(const std::string &Url, const std::string &FileName, cHttpProg
      Error = "curl_easy_init() failed";
      return false;
      }
+  tFileSink sink = { f, Progress, 0 };
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, FileWriter);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, f);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &sink);
   curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
   curl_easy_setopt(curl, CURLOPT_XFERINFODATA, Progress);
   curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
@@ -157,7 +171,7 @@ bool HttpDownload(const std::string &Url, const std::string &FileName, cHttpProg
   CURLcode res = curl_easy_perform(curl);
   bool ok = res == CURLE_OK;
   if (!ok)
-     Error = res == CURLE_ABORTED_BY_CALLBACK ? "aborted" : ErrorText(res, errbuf);
+     Error = res == CURLE_ABORTED_BY_CALLBACK || (res == CURLE_WRITE_ERROR && !ferror(f)) ? "aborted" : ErrorText(res, errbuf);
   curl_easy_cleanup(curl);
   if (fflush(f) != 0 || fsync(fileno(f)) != 0) {
      if (ok)

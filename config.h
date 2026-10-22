@@ -18,6 +18,8 @@
 #define DEFAULT_UPDATE_DIR     "/storage/.update"
 #define DEFAULT_REBOOT_COMMAND "reboot"
 #define DEFAULT_OS_RELEASE     "/etc/os-release"
+#define DEFAULT_BACKUP_DIR     "/storage/backup/vdrsternelec"
+#define DEFAULT_WORK_DIR       "/storage/.cache/vdrsternelec"
 
 enum eRebootMode { rmManual, rmIdle, rmModes };
 
@@ -35,9 +37,26 @@ public:
   int ShowPrerelease;       ///< also list GitHub pre-releases
   char UpdateDir[256];
   char RebootCommand[256];
+  int AllowMajorUpgrade;    ///< offer releases with another major version (e.g. 12 -> 13)
+  int ThrottleKBps;         ///< download limit while recording, 0 = none
+  int WindowStart;          ///< hhmm, automatic downloads and reboots only in this window
+  int WindowEnd;            ///< hhmm, WindowStart == WindowEnd: always
+  int BackupBeforeUpdate;   ///< create a backup before rebooting into an update
+  int BackupScope;          ///< eBackupScope
+  int BackupKeep;           ///< number of backups to keep
+  int KeepImages;           ///< number of update files to keep for rollback, 0 = none
+  int UpdateAddons;         ///< update installed addons together with the system
+  char BackupDir[256];
   char Board[64];           ///< u-boot board, empty = all
   char Arch[64];            ///< override architecture, empty = auto detect
   char LastNotified[256];   ///< name of the last release we notified about
+  // not in the setup menu (setup.conf only, mainly for tests)
+  char WorkDir[256];        ///< staging area for addons, restore script
+  char RootDir[256];        ///< prefix for system paths, empty = /
+  char ServiceCommand[64];  ///< systemctl
+  char VdrStopCommand[256];
+  char VdrStartCommand[256];
+  char DetachCommand[256];  ///< runs the restore script outside of VDR's service
   cPluginConfig(void);
   bool SetupParse(const char *Name, const char *Value);
   };

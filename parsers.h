@@ -19,6 +19,17 @@
 
 // --- Release information -----------------------------------------------------
 
+struct cAddonInfo {
+  std::string id;        ///< e.g. addon.cefbrowser, channellogos, yt-dlp, driver.dvb.dvb-latest
+  std::string version;   ///< e.g. 12.80.7.2
+  std::string name;      ///< file name
+  std::string url;
+  std::string sha256;
+  std::string sha256Url;
+  long long size;
+  cAddonInfo(void) : size(-1) {}
+  };
+
 struct cReleaseInfo {
   std::string server;    ///< name of the server this release comes from
   std::string channel;   ///< channel (releases.json), tag (GitHub) or server name (index)
@@ -32,6 +43,7 @@ struct cReleaseInfo {
   time_t timestamp;      ///< build/upload time, 0 if unknown
   bool prerelease;       ///< marked as pre-release (GitHub)
   bool local;            ///< file in a local directory (url is file://)
+  std::vector<cAddonInfo> addons; ///< addons belonging to this release (one per id)
   cReleaseInfo(void) : size(-1), timestamp(0), prerelease(false), local(false) {}
   };
 
@@ -120,6 +132,23 @@ std::string PathToFileUrl(const std::string &Path);
 std::string ParseSha256File(const std::string &Content, const std::string &FileName);
   ///< Extracts the checksum for FileName from the contents of a .sha256 file
   ///< or a checksum list (SHA256SUMS). Returns an empty string if none is found.
+
+// --- Addons, versions, time windows ----------------------------------------------
+
+bool ParseAddonName(const std::string &Name, const std::string &Arch, std::string &Id, std::string &Version);
+  ///< Parses VDR*ELEC addon file names like
+  ///< LE-RPi4.aarch64-addon.cefbrowser-12.80.7.2.zip or
+  ///< CE-Amlogic-ng.arm-driver.dvb.dvb-latest-20.5.0.zip (.zip or .tar.gz).
+void AttachAddons(std::vector<cReleaseInfo> &Releases, size_t First, const std::vector<cAddonInfo> &Addons);
+  ///< Assigns the addons to the releases Releases[First...] (all from the
+  ///< same tag or directory). If there are several versions of an addon, the
+  ///< one with the same major.minor version as the release is used, otherwise
+  ///< the newest one not belonging to another release.
+int MajorVersion(const std::string &Version);
+  ///< First number of a version (13 for "13.0-devel-...", 20 for "20.5-VDR-0724"),
+  ///< -1 if there is none.
+bool InTimeWindow(int Start, int End, int Now);
+  ///< Times as hhmm. Start == End means always. Windows may span midnight.
 
 // --- Helpers -----------------------------------------------------------------
 

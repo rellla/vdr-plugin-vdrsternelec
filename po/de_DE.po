@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: vdr-vdrsternelec 0.4.0\n"
+"Project-Id-Version: vdr-vdrsternelec 0.5.0\n"
 "Report-Msgid-Bugs-To: <see README>\n"
 "POT-Creation-Date: 2026-10-21 17:30+0200\n"
 "PO-Revision-Date: 2026-10-21 17:30+0200\n"
@@ -395,3 +395,156 @@ msgstr "Update"
 
 msgid "Check for updates automatically"
 msgstr "Automatisch nach Updates suchen"
+
+msgid "Last update"
+msgstr "Letztes Update"
+
+msgid "Backups & rollback..."
+msgstr "Backups & Rollback..."
+
+msgid "Creating backup, then rebooting..."
+msgstr "Erstelle Backup, danach Neustart..."
+
+msgid "Backups & rollback"
+msgstr "Backups & Rollback"
+
+msgid "Button$Backup"
+msgstr "Backup"
+
+msgid "Create backup now"
+msgstr "Jetzt Backup erstellen"
+
+msgid "Backups (OK = restore)"
+msgstr "Backups (OK = wiederherstellen)"
+
+msgid "No backups"
+msgstr "Keine Backups"
+
+msgid "Rollback (OK = install)"
+msgstr "Rollback (OK = installieren)"
+
+msgid "No update files kept"
+msgstr "Keine Update-Dateien aufbewahrt"
+
+msgid "Please wait until the current action is finished"
+msgstr "Bitte warten, bis die laufende Aktion beendet ist"
+
+#, c-format
+msgid "Restore backup from %s? VDR will be restarted."
+msgstr "Backup vom %s wiederherstellen? VDR wird neu gestartet."
+
+msgid "Recording - restart VDR anyway?"
+msgstr "Aufnahme läuft - VDR trotzdem neu starten?"
+
+msgid "Restoring backup, VDR will be restarted..."
+msgstr "Stelle Backup wieder her, VDR wird neu gestartet..."
+
+msgid "This version is installed"
+msgstr "Diese Version ist installiert"
+
+#, c-format
+msgid "Install %s again?"
+msgstr "%s wieder installieren?"
+
+msgid "Update file is prepared - reboot to install. Restore a backup if needed."
+msgstr "Update-Datei wird bereitgestellt - zum Installieren neu starten. Bei Bedarf ein Backup wiederherstellen."
+
+msgid "Delete backup?"
+msgstr "Backup löschen?"
+
+msgid "Delete kept update file?"
+msgstr "Aufbewahrte Update-Datei löschen?"
+
+msgid "VDR configuration"
+msgstr "VDR-Konfiguration"
+
+msgid "complete /storage/.config"
+msgstr "komplettes /storage/.config"
+
+msgid "General"
+msgstr "Allgemein"
+
+msgid "Automatic"
+msgstr "Automatik"
+
+msgid "Automatic actions from"
+msgstr "Automatik von"
+
+msgid "Automatic actions until"
+msgstr "Automatik bis"
+
+msgid "Download limit while recording (KB/s)"
+msgstr "Download-Limit bei Aufnahmen (KB/s)"
+
+msgid "Safety"
+msgstr "Sicherheit"
+
+msgid "Allow change of major version"
+msgstr "Hauptversionswechsel erlauben"
+
+msgid "Backup before update"
+msgstr "Backup vor dem Update"
+
+msgid "Backup contents"
+msgstr "Backup-Umfang"
+
+msgid "Number of backups"
+msgstr "Anzahl Backups"
+
+msgid "Older versions for rollback"
+msgstr "Ältere Versionen für Rollback"
+
+msgid "Update installed addons"
+msgstr "Installierte Addons aktualisieren"
+
+msgid "Display"
+msgstr "Anzeige"
+
+msgid "Expert"
+msgstr "Experten"
+
+msgid "Backup directory"
+msgstr "Backup-Verzeichnis"
+
+#, c-format
+msgid "%s installed (%s)"
+msgstr "%s installiert (%s)"
+
+#, c-format
+msgid "%s NOT installed (%s)"
+msgstr "%s NICHT installiert (%s)"
+
+msgid "VDR*ELEC update was not processed during the reboot"
+msgstr "VDR*ELEC-Update wurde beim Neustart nicht verarbeitet"
+
+#, c-format
+msgid "VDR*ELEC update installed: %s"
+msgstr "VDR*ELEC-Update installiert: %s"
+
+#, c-format
+msgid "VDR*ELEC update NOT installed: %s"
+msgstr "VDR*ELEC-Update NICHT installiert: %s"
+
+msgid "driver addons were already updated, see backups"
+msgstr "Treiber-Addons wurden bereits aktualisiert, siehe Backups"
+
+msgid "Change of the major version not allowed (see setup)"
+msgstr "Hauptversionswechsel nicht erlaubt (siehe Setup)"
+
+msgid "Preparing reboot..."
+msgstr "Bereite Neustart vor..."
+
+msgid "Creating backup..."
+msgstr "Erstelle Backup..."
+
+msgid "Backup failed"
+msgstr "Backup fehlgeschlagen"
+
+msgid "Rollback"
+msgstr "Rollback"
+
+msgid "manual"
+msgstr "manuell"
+
+msgid "Backup created"
+msgstr "Backup erstellt"

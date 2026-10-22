@@ -21,6 +21,8 @@
 
 // --- Helpers -----------------------------------------------------------------
 
+static std::string VersionPrefix(const std::string &s);
+
 std::string Trim(const std::string &s)
 {
   size_t b = s.find_first_not_of(" \t\r\n");
@@ -537,9 +539,25 @@ static void ParseGithubRelease(const cJsonValue &Rel, const std::string &Arch, c
       const cJsonValue &a = assets->Array()[i];
       urls[a.GetString("name")] = a.GetString("browser_download_url");
       }
+  size_t first = Releases.size();
+  std::vector<cAddonInfo> addons;
   for (size_t i = 0; i < assets->Array().size(); i++) {
       const cJsonValue &a = assets->Array()[i];
       std::string name = a.GetString("name");
+      cAddonInfo ad;
+      if (!IsUpdateFile(name) && ParseAddonName(name, Arch, ad.id, ad.version)) {
+         ad.name = name;
+         ad.url = a.GetString("browser_download_url");
+         ad.size = JsonSize(a.Get("size"));
+         std::string digest = a.GetString("digest");
+         if (StartsWith(digest, "sha256:") && IsHexDigest(digest.substr(7)))
+            ad.sha256 = Lower(digest.substr(7));
+         else if (urls.count(name + ".sha256"))
+            ad.sha256Url = urls[name + ".sha256"];
+         if (!ad.url.empty())
+            addons.push_back(ad);
+         continue;
+         }
       if (!IsUpdateFile(name) || !MatchesArch(name, Arch, Filter))
          continue;
       cReleaseInfo r;
@@ -564,6 +582,7 @@ static void ParseGithubRelease(const cJsonValue &Rel, const std::string &Arch, c
       r.label = LabelFromName(name, Arch);
       Releases.push_back(r);
       }
+  AttachAddons(Releases, first, addons);
 }
 
 bool ParseGithubReleases(const std::string &Json, const std::string &Arch, const std::string &ChannelFilter, const std::string &Filter, std::vector<cReleaseInfo> &Releases, std::string &Error)
@@ -675,8 +694,22 @@ bool ParseIndexHtml(const std::string &Html, const std::string &BaseUrl, const s
         }
   std::string list = ChecksumList(names);
   std::set<std::string> seen;
+  size_t first = Releases.size();
+  std::vector<cAddonInfo> addons;
   for (size_t i = 0; i < hrefs.size(); i++) {
       std::string name = UrlDecode(LastPathComponent(hrefs[i]));
+      cAddonInfo ad;
+      if (!IsUpdateFile(name) && !seen.count(name) && ParseAddonName(name, Arch, ad.id, ad.version)) {
+         seen.insert(name);
+         ad.name = name;
+         ad.url = ResolveUrl(base, hrefs[i]);
+         if (names.count(name + ".sha256"))
+            ad.sha256Url = ad.url + ".sha256";
+         else if (!list.empty())
+            ad.sha256Url = ResolveUrl(base, list);
+         addons.push_back(ad);
+         continue;
+         }
       if (!IsUpdateFile(name) || !MatchesArch(name, Arch, Filter) || seen.count(name))
          continue;
       seen.insert(name);
@@ -691,6 +724,7 @@ bool ParseIndexHtml(const std::string &Html, const std::string &BaseUrl, const s
       r.label = LabelFromName(name, Arch);
       Releases.push_back(r);
       }
+  AttachAddons(Releases, first, addons);
   return true;
 }
 
@@ -746,8 +780,22 @@ bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string
   for (size_t i = 0; i < Files.size(); i++)
       names.insert(Files[i].name);
   std::string list = ChecksumList(names);
+  size_t first = Releases.size();
+  std::vector<cAddonInfo> addons;
   for (size_t i = 0; i < Files.size(); i++) {
       const cLocalFile &f = Files[i];
+      cAddonInfo ad;
+      if (!IsUpdateFile(f.name) && ParseAddonName(f.name, Arch, ad.id, ad.version)) {
+         ad.name = f.name;
+         ad.url = dir + EncodePath(f.name);
+         ad.size = f.size;
+         if (names.count(f.name + ".sha256"))
+            ad.sha256Url = dir + EncodePath(f.name + ".sha256");
+         else if (!list.empty())
+            ad.sha256Url = dir + EncodePath(list);
+         addons.push_back(ad);
+         continue;
+         }
       if (!IsUpdateFile(f.name) || !MatchesArch(f.name, Arch, Filter))
          continue;
       cReleaseInfo r;
@@ -764,6 +812,7 @@ bool ParseLocalDirectory(const std::vector<cLocalFile> &Files, const std::string
       r.label = LabelFromName(f.name, Arch);
       Releases.push_back(r);
       }
+  AttachAddons(Releases, first, addons);
   return true;
 }
 
@@ -905,6 +954,117 @@ std::string FormatBuildDate(time_t Time, bool HasTime)
   localtime_r(&Time, &tm);
   strftime(buf, sizeof(buf), HasTime ? "%d.%m.%Y %H:%M" : "%d.%m.%Y", &tm);
   return buf;
+}
+
+// --- Addons, versions, time windows ----------------------------------------------
+
+static bool IsVersionString(const std::string &s)
+{
+  if (s.empty() || !isdigit((unsigned char)s[0]))
+     return false;
+  for (size_t i = 0; i < s.size(); i++)
+      if (!isdigit((unsigned char)s[i]) && s[i] != '.')
+         return false;
+  return true;
+}
+
+bool ParseAddonName(const std::string &Name, const std::string &Arch, std::string &Id, std::string &Version)
+{
+  std::string base;
+  if (EndsWith(Name, ".zip"))
+     base = Name.substr(0, Name.size() - 4);
+  else if (EndsWith(Name, ".tar.gz"))
+     base = Name.substr(0, Name.size() - 7);
+  else
+     return false;
+  if (Arch.empty())
+     return false;
+  size_t p = 0;
+  for (;;) {
+      p = base.find(Arch + "-", p);
+      if (p == std::string::npos)
+         return false;
+      if (p == 0 || base[p - 1] == '-')
+         break;
+      p++;
+      }
+  std::string rest = base.substr(p + Arch.size() + 1);
+  size_t dash = rest.rfind('-');
+  if (dash == std::string::npos || dash == 0)
+     return false;
+  Version = rest.substr(dash + 1);
+  Id = rest.substr(0, dash);
+  if (!IsVersionString(Version))
+     return false;
+  // the id must be a plain name (it becomes a directory name)
+  for (size_t i = 0; i < Id.size(); i++)
+      if (!isalnum((unsigned char)Id[i]) && Id[i] != '.' && Id[i] != '-' && Id[i] != '_')
+         return false;
+  return Id[0] != '.' && Id.find("..") == std::string::npos;
+}
+
+static std::string MajorMinor(const std::string &Version)
+{
+  std::string v = VersionPrefix(Version);
+  size_t dot = v.find('.');
+  if (dot == std::string::npos)
+     return v;
+  size_t dot2 = v.find('.', dot + 1);
+  return dot2 == std::string::npos ? v : v.substr(0, dot2);
+}
+
+void AttachAddons(std::vector<cReleaseInfo> &Releases, size_t First, const std::vector<cAddonInfo> &Addons)
+{
+  std::map<std::string, std::vector<const cAddonInfo *> > byId;
+  for (size_t i = 0; i < Addons.size(); i++)
+      byId[Addons[i].id].push_back(&Addons[i]);
+  for (std::map<std::string, std::vector<const cAddonInfo *> >::const_iterator it = byId.begin(); it != byId.end(); ++it) {
+      const std::vector<const cAddonInfo *> &cand = it->second;
+      std::set<std::string> addonVersions;
+      for (size_t i = 0; i < cand.size(); i++)
+          addonVersions.insert(MajorMinor(cand[i]->version));
+      std::set<std::string> releaseVersions;
+      for (size_t r = First; r < Releases.size(); r++)
+          releaseVersions.insert(MajorMinor(Releases[r].label));
+      // the newest release without an addon of the same major.minor version
+      // gets the newest addon version that doesn't belong to another release
+      std::string newestUnmatched;
+      for (size_t r = First; r < Releases.size(); r++) {
+          std::string mm = MajorMinor(Releases[r].label);
+          if (!addonVersions.count(mm) && (newestUnmatched.empty() || strverscmp(mm.c_str(), newestUnmatched.c_str()) > 0))
+             newestUnmatched = mm;
+          }
+      for (size_t r = First; r < Releases.size(); r++) {
+          std::string mm = MajorMinor(Releases[r].label);
+          const cAddonInfo *best = NULL;
+          for (size_t i = 0; i < cand.size(); i++) {
+              const cAddonInfo *a = cand[i];
+              std::string amm = MajorMinor(a->version);
+              bool fits = addonVersions.count(mm) ? amm == mm : (mm == newestUnmatched && !releaseVersions.count(amm));
+              if (fits && (!best || strverscmp(a->version.c_str(), best->version.c_str()) > 0))
+                 best = a;
+              }
+          if (best)
+             Releases[r].addons.push_back(*best);
+          }
+      }
+}
+
+int MajorVersion(const std::string &Version)
+{
+  std::string v = VersionPrefix(Trim(Version));
+  if (v.empty())
+     return -1;
+  return atoi(v.c_str());
+}
+
+bool InTimeWindow(int Start, int End, int Now)
+{
+  if (Start == End)
+     return true;
+  if (Start < End)
+     return Now >= Start && Now < End;
+  return Now >= Start || Now < End; // over midnight
 }
 
 // --- Version comparison --------------------------------------------------------

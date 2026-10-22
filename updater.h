@@ -25,7 +25,7 @@ struct cServerResult {
 
 class cUpdater : public cThread {
 public:
-  enum eState { usIdle, usChecking, usDownloading, usVerifying, usReady, usError };
+  enum eState { usIdle, usChecking, usDownloading, usVerifying, usReady, usError, usPreparing, usBackup };
 private:
   cMutex mutex;
   cCondVar condVar;
@@ -46,6 +46,14 @@ private:
   volatile bool abortDownload;
   std::string stateFile;
   bool autoRebootBlocked;
+  bool rebootRequested;
+  bool backupRequested;
+  bool postInstallAddons;
+  std::string startupMessage;
+  std::string lastResult;
+  bool deferredDownloadSet;
+  cReleaseInfo deferredDownload;
+  volatile bool recording;
   std::string notifiedName;
   bool notifiedChanged;
   void SetState(eState State, const std::string &Message = "");
@@ -57,6 +65,13 @@ private:
   void FindPendingUpdate(void);
   void LoadState(void);
   void SaveState(const cReleaseInfo &Release);
+  void DownloadAddons(const cReleaseInfo &Release);
+  bool Fetch(const cReleaseInfo &Release, class cFileSource *Source, const std::string &FileName, std::string &Error);
+  void InstallStagedAddons(bool Drivers);
+  bool PrepareReboot(void);
+  bool DoBackup(const std::string &Reason, std::string &Error);
+  bool Allowed(const cReleaseInfo &Release);
+  int InstalledMajor(void);
   static bool RemoveOtherUpdates(const std::string &Dir, const std::string &Keep);
   friend class cDownloadProgress;
 protected:
@@ -92,6 +107,18 @@ public:
   ///< The downloaded update (name, label and build time, as far as known).
   bool DiscardPending(std::string &Error);
   bool Reboot(std::string &Error);
+  ///< Requests the reboot. The backup and driver addons are done in the
+  ///< updater thread, which then reboots the system.
+  void SetRecording(bool On) { recording = On; }
+  static bool InWindow(void);
+  ///< True if automatic downloads/reboots are allowed now (time window).
+  bool RequestBackup(std::string &Error);
+  std::string LastResult(void);
+  ///< Result of the last update (installed/not installed), empty if unknown.
+  std::vector<cReleaseInfo> RollbackImages(void);
+  ///< Update files kept for rollback.
+  bool MajorAllowed(const cReleaseInfo &Release);
+  std::string StateFile(void) { return stateFile; }
   bool AutoRebootAllowed(void);
   ///< False if the system already rebooted for the pending update without
   ///< installing it (prevents a reboot loop).
